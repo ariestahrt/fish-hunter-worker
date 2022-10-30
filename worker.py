@@ -3,6 +3,7 @@ from urllib.parse import urlparse
 from pymongo import MongoClient
 from datetime import datetime, timedelta
 from webpage_saver import save_webpage
+from s3uploader import compress_and_upload
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -35,7 +36,7 @@ def init_logging():
 
 init_logging()
 logger = logging.getLogger(__name__)
-
+load_dotenv()
 
 # CLIENT = MongoClient('localhost', 27017)
 # Connect to mongodb atlas
@@ -119,7 +120,7 @@ def get_urlscan_result(url):
 
     return uuids
 
-def save_dataset(uuid):
+def save_dataset(uuid, fish_id):
     # Get URL, VERDICT
     while True:
         try:
@@ -192,19 +193,14 @@ def save_dataset(uuid):
     
     json_dataset["assets_downloaded"] = save_webpage(scam_url, html_content=dom_req.text, saved_path=f"datasets/{temp_dir}")
 
-    if json_dataset["assets_downloaded"] < 0.1:
-        logging.error(">>>> Scampage seems offline or deactivated")
-        json_dataset["reject_details"] = "Scampage seems offline or deactivated (assets_downloaded < 1%)"
-        remove_dir(f"datasets/{temp_dir}")
-        return False, json_dataset
-
     # Prepare to move temp folder to actualy dataset
-    dataset_brand = "-".join(brands)
-    dataset_index = 1
-    while(os.path.exists(f"datasets/{dataset_brand}-{dataset_index}")):
-        dataset_index+=1
+    # dataset_brand = "-".join(brands)
+    # dataset_index = 1
+    # while(os.path.exists(f"datasets/{dataset_brand}-{dataset_index}")):
+    #     dataset_index+=1
 
-    dataset_path = f"datasets/{dataset_brand}-{dataset_index}"
+    # dataset_path = f"datasets/{dataset_brand}-{dataset_index}"
+    dataset_path = f"datasets/{fish_id}"
     os.rename(f"datasets/{temp_dir}", dataset_path)
     json_dataset["dataset_path"] = dataset_path
     json_dataset["htmldom_path"] = f"{dataset_path}/index.html"
@@ -243,7 +239,7 @@ if __name__ == "__main__":
         if len(urlscan_uuids) > 0:
             for uuid in urlscan_uuids:
                 logging.info(">> Downloading UUID {}", uuid)
-                save_ok, save_result = save_dataset(uuid)
+                save_ok, save_result = save_dataset(uuid, fish_id)
                 if save_ok == True:
                     logging.info(">> Downloading UUID {} : {}", uuid, "OK")
                     break
@@ -272,12 +268,17 @@ if __name__ == "__main__":
                     "created_at": datetime.today().replace(microsecond=0),
                     "updated_at": datetime.today().replace(microsecond=0)
                 }
+                
                 DATASETS.insert_one(data)
+
+                # Compress and encrypt
+                compress_and_upload(save_result["dataset_path"], f"{fish_id}.7z")
+
             else:
                 JOBS.update_one({"_id": job_id}, { "$set": { "http_status": save_result["http_status"], "save_status": "failed", "details": save_result["reject_details"], "updated": datetime.today().replace(microsecond=0)} })
 
         else:
             JOBS.update_one({"_id": job_id}, { "$set": { "http_status": None, "save_status": "failed", "details": "Domain not found in urlscan.io", "updated": datetime.today().replace(microsecond=0)} })
-        
+
         # Update fish as executed
         URL_COLLECTIONS.update_one({"_id": fish_id}, { "$set": { "executed": True, "updated": datetime.today().replace(microsecond=0)} })

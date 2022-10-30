@@ -2,3 +2,4 @@ tweet.py
 .env
 datasets/*
 app.log
+__pycache__/
