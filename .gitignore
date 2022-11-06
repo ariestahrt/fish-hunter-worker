@@ -3,3 +3,5 @@ tweet.py
 datasets/*
 app.log
 __pycache__/
+*.code-workspace
+*.7z

@@ -1,7 +1,7 @@
 import requests, re, json, os
 from urllib.parse import urlparse
 from pymongo import MongoClient
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from webpage_saver import save_webpage
 from s3uploader import compress_and_upload
 from pathlib import Path
@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 
 import logging
 import sys
+import time, random
 
 from colargulog import ColorizedArgsFormatter
 from colargulog import BraceFormatStyleFormatter
@@ -22,7 +23,7 @@ def init_logging():
     console_level = "INFO"
     console_handler = logging.StreamHandler(stream=sys.stdout)
     console_handler.setLevel(console_level)
-    console_format = "%(asctime)s :: %(levelname)-8s :: %(message)s"
+    console_format = "%(asctime)s :: %(levelname)-4s :: %(message)s"
     colored_formatter = ColorizedArgsFormatter(console_format)
     console_handler.setFormatter(colored_formatter)
     root_logger.addHandler(console_handler)
@@ -60,14 +61,18 @@ def read_file(filename):
 def get_proxy():
     proxy_list = read_file(os.getenv("PROXY_PATH")).splitlines()
     proxy_random = random.choice(proxy_list)
-    return {"http": proxy_random, "https": proxy_random}
+    
+    return {"http": f"http://{proxy_random}", "https": f"http://{proxy_random}"}
 
-def request_with_proxy(url, proxy):
+def request_with_proxy(url):
     while True:
         try:
-            req = requests.get(url, proxies=proxy, timeout=4)
+            proxy = get_proxy()
+            print("> using proxy: ", proxy)
+            req = requests.get(url, proxies=proxy, timeout=2)
             return req
-        except:
+        except Exception as ex:
+            print("> error: ", ex)
             None
 
 def remove_dir(directory):
@@ -96,7 +101,7 @@ def get_urlscan_result(url):
     netloc = urlparse(url).netloc
     endpoint = f"https://urlscan.io/api/v1/search/?q={netloc}"
 
-    req = requests.get(endpoint)
+    req = request_with_proxy(endpoint)
     res = json.loads(req.text)
 
     try:
@@ -124,7 +129,7 @@ def save_dataset(uuid, fish_id):
     # Get URL, VERDICT
     while True:
         try:
-            req_result = requests.get(f"https://urlscan.io/api/v1/result/{uuid}")
+            req_result = request_with_proxy(f"https://urlscan.io/api/v1/result/{uuid}")
             json_obj = json.loads(req_result.text)
 
             domain = json_obj["page"]["domain"]
@@ -154,12 +159,16 @@ def save_dataset(uuid, fish_id):
         "urlscan_uuid": uuid
     }
 
+    if "ntagojp" in categories:
+        json_dataset["reject_details"] = "Brands blacklisted"
+        return False, json_dataset
+
     if len(brands) < 1:
         logging.error(">>>> Brands invalid")
         json_dataset["reject_details"] = "Not a phishing (by urlscan)"
         return False, json_dataset
 
-    dom_req = requests.get(f"https://urlscan.io/dom/{uuid}/")
+    dom_req = request_with_proxy(f"https://urlscan.io/dom/{uuid}/")
     dom_req.encoding = 'utf-8'
 
     if len(dom_req.text) < 30:
@@ -214,8 +223,14 @@ def save_dataset(uuid, fish_id):
 
 if __name__ == "__main__":
     while True:
-        fish = URL_COLLECTIONS.find_one({"executed": False})
+        fish = URL_COLLECTIONS.find_one({"status": "queued"})
         print(fish)
+
+        if fish is None:
+            logging.info("No fish found, waiting 5 minutes")
+            time.sleep(5*60)
+            continue
+        
         fish_id = fish["_id"]
         url = fish["url"]
         logging.info("FISH {}", fish["url"])
@@ -226,10 +241,14 @@ if __name__ == "__main__":
             "http_status": None,
             "save_status": None,
             "details": None,
+            "worker": os.getenv("WORKER_NAME"),
             "created_at": datetime.today().replace(microsecond=0),
             "updated_at": datetime.today().replace(microsecond=0)
         }
         job_id = JOBS.insert_one(data).inserted_id
+
+        # Update fish as processed
+        URL_COLLECTIONS.update_one({"_id": fish_id}, { "$set": { "status": "processed", "updated": datetime.today().replace(microsecond=0)} })
 
         urlscan_uuids = get_urlscan_result(url)
         logging.info("FOUND {} scan from urlscan.io", len(urlscan_uuids))
@@ -240,6 +259,11 @@ if __name__ == "__main__":
             for uuid in urlscan_uuids:
                 logging.info(">> Downloading UUID {}", uuid)
                 save_ok, save_result = save_dataset(uuid, fish_id)
+
+                if save_result["reject_details"] == "Brands blacklisted":
+                    logging.info(">> Downloading UUID {} : {}", uuid, "STOPPED")
+                    break
+                
                 if save_ok == True:
                     logging.info(">> Downloading UUID {} : {}", uuid, "OK")
                     break
@@ -263,10 +287,10 @@ if __name__ == "__main__":
                     "htmldom_path": save_result["htmldom_path"],
                     "scrapped_from": save_result["scrapped_from"],
                     "urlscan_uuid": save_result["urlscan_uuid"],
-                    "validated": False,
-                    "is_valid": None,
+                    "status": "new",
                     "created_at": datetime.today().replace(microsecond=0),
-                    "updated_at": datetime.today().replace(microsecond=0)
+                    "updated_at": datetime.today().replace(microsecond=0),
+                    "deleted_at": None
                 }
                 
                 DATASETS.insert_one(data)
@@ -281,4 +305,4 @@ if __name__ == "__main__":
             JOBS.update_one({"_id": job_id}, { "$set": { "http_status": None, "save_status": "failed", "details": "Domain not found in urlscan.io", "updated": datetime.today().replace(microsecond=0)} })
 
         # Update fish as executed
-        URL_COLLECTIONS.update_one({"_id": fish_id}, { "$set": { "executed": True, "updated": datetime.today().replace(microsecond=0)} })
+        URL_COLLECTIONS.update_one({"_id": fish_id}, { "$set": { "status": "done", "updated": datetime.today().replace(microsecond=0)} })
