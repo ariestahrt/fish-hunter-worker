@@ -113,7 +113,7 @@ def download_local_asset(saved_path, base_url, file_path, asset, assets_list):
     replacement = asset["saved_to"]
     if asset["source"]["file"].count("/") > 0: replacement = asset["saved_to"][len("assets/"):]
     new_content = old_content.replace(asset["source"]["replace"], asset["source"]["replace"].replace(asset["path"], replacement))
-    with open(normalize_path(f"{saved_path}/{asset['source']['file']}"), "w", encoding="utf-8") as f: f.write(new_content)
+    with open(normalize_path(f"{saved_path}/{asset['source']['file']}"), "w") as f: f.write(new_content)
 
     logs("\t[!] Downloading assets", asset["url"])
     logging.info(">> Downloading asset {}", asset["url"])
@@ -198,7 +198,7 @@ def save_webpage(url, html_content="", saved_path="result"):
 
     if html_content == "": html_content = get_content(url).text
     # Write HTML first
-    with open(normalize_path(saved_path+"/index.html"), "w", encoding="utf-8") as f: f.write(html_content)
+    with open(normalize_path(saved_path+"/index.html"), "w") as f: f.write(html_content)
     html_tag_cssjs = { "link" : "href", "script" : "src", "img":"src" }
 
     # Collect assets

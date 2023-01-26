@@ -2,3 +2,6 @@ tweet.py
 .env
 datasets/*
 app.log
+__pycache__/
+*.code-workspace
+*.7z
