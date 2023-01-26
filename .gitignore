@@ -5,3 +5,6 @@ app.log
 __pycache__/
 *.code-workspace
 *.7z
+whoisxml_api_keys.txt
+*.json
+cron.sh

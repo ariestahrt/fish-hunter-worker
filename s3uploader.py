@@ -7,9 +7,10 @@ load_dotenv()
 ACCESS_KEY=os.getenv("AWS_ACCESS_KEY")
 SECRET_KEY=os.getenv("AWS_SECRET_KEY")
 BUCKET=os.getenv("AWS_BUCKET")
+PASSWORD=os.getenv("7Z_PASSWORD")
 
 def compress_and_upload(dataset_path, bucket_filename):
-    os.system(f"7z a -t7z -m0=lzma2 -mx=9 -mfb=64 -md=32m -ms=on -mhe=on -p'heart123' {bucket_filename} {dataset_path}")
+    os.system(f"7z a -t7z -m0=lzma2 -mx=9 -mfb=64 -md=32m -ms=on -mhe=on -p'{PASSWORD}' {bucket_filename} {dataset_path}")
     upload_to_aws(bucket_filename)
     # Remove file
     os.system(f"rm {bucket_filename}")

@@ -4,8 +4,10 @@ from pymongo import MongoClient
 from datetime import date, datetime, timedelta
 from webpage_saver import save_webpage
 from s3uploader import compress_and_upload
+from lookup_tools import whoisxmlapi, ipwhois
 from pathlib import Path
 from dotenv import load_dotenv
+
 
 import logging
 import sys
@@ -58,13 +60,25 @@ def read_file(filename):
 		logging.error("Error opening or reading input file: {}", ex)
 		exit()
 
+# LOAD BLACKLIST.TXT
+BLACKLIST = read_file(os.getenv("BLACKLIST_PATH")).splitlines()
+
 def get_proxy():
     proxy_list = read_file(os.getenv("PROXY_PATH")).splitlines()
     proxy_random = random.choice(proxy_list)
     
     return {"http": f"http://{proxy_random}", "https": f"http://{proxy_random}"}
 
-def request_with_proxy(url):
+def request_helper(url):
+    print("REQUEST HELPER:: ", url)
+    if os.getenv("IS_PROXY_ENABLED") == "False":
+        try:
+            req = requests.get(url, timeout=10)
+            return req
+        except Exception as ex:
+            print("> error: ", ex)
+            return None
+
     while True:
         try:
             proxy = get_proxy()
@@ -97,11 +111,17 @@ def create_dir(parrent_dir, new_dir):
     except OSError as error:
         logging.error("Failed creating dir {}", path)
 
-def get_urlscan_result(url):
+def urlscan_search(url):
     netloc = urlparse(url).netloc
     endpoint = f"https://urlscan.io/api/v1/search/?q={netloc}"
 
-    req = request_with_proxy(endpoint)
+
+    req = request_helper(endpoint)
+    # save to file
+    
+    with open("urlscan.json", "w") as f:
+        f.write(req.text)
+
     res = json.loads(req.text)
 
     try:
@@ -109,7 +129,7 @@ def get_urlscan_result(url):
     except:
         return []
 
-    # Filter > 5 minggu
+    # Filter > 5 weeks
     min_date = datetime.today() - timedelta(days=5*7)
     filter_res = list(filter(lambda x: x["task"]["time"] >= str(min_date), res["results"]))
 
@@ -125,58 +145,64 @@ def get_urlscan_result(url):
 
     return uuids
 
-def save_dataset(uuid, fish_id):
-    # Get URL, VERDICT
+def urlscan_uuid(uuid):
     while True:
         try:
-            req_result = request_with_proxy(f"https://urlscan.io/api/v1/result/{uuid}")
-            json_obj = json.loads(req_result.text)
-
-            domain = json_obj["page"]["domain"]
-            scam_url = json_obj["page"]["url"]
-            categories = json_obj["verdicts"]["overall"]["categories"]
-            brands = json_obj["verdicts"]["overall"]["brands"]
-            break
+            response = request_helper(f"https://urlscan.io/api/v1/result/{uuid}")
+            urlscan_res = response.json()
+            return urlscan_res
         except: None
 
-    logging.info(">>>> Domain {}", domain)
-    logging.info(">>>> URL {}", scam_url)
-    logging.info(">>>> Brands {}", brands)
+'''
+    Download dataset and save to db
+
+    @param uuid: urlscan uuid
+    @param fish_id: fish id
+
+    @return: Exception, Datset Info, URLScan Info
+'''
+def save_dataset(uuid, fish_id):
+    urlscan_data = urlscan_uuid(uuid)
+
+    logging.info(">>>> Domain {}", urlscan_data["page"]["domain"])
+    logging.info(">>>> URL {}", urlscan_data["page"]["url"])
+    logging.info(">>>> Brands {}", urlscan_data["verdicts"]["overall"]["brands"])
+
     # Prepare json obj to save
-    json_dataset = {
-        "date_scrapped": datetime.today().replace(microsecond=0),
-        "http_status":None,
+    dataset_info = {
+        "urlscan_uuid": uuid,
+        "http_status_code": None,
         "reject_details": "",
-        "domain": domain,
-        "assets_downloaded":None,
-        "content_length":None,
-        "url": scam_url,
-        "categories": categories,
-        "brands": brands,
+        "assets_downloaded": None,
+        "content_length": None,
         "dataset_path": "",
-        "htmldom_path": "",
-        "scrapped_from": "urlscan.io",
-        "urlscan_uuid": uuid
+        "htmldom_path": ""
     }
 
-    if "ntagojp" in categories:
-        json_dataset["reject_details"] = "Brands blacklisted"
-        return False, json_dataset
-
-    if len(brands) < 1:
+    # check is categories in blacklist
+    for category in urlscan_data["verdicts"]["overall"]["categories"]:
+        if category in BLACKLIST:
+            dataset_info["reject_details"] = "Categories blacklisted"
+            return Exception("Categories blacklisted"), dataset_info, urlscan_data
+    
+    # check is brands valid
+    if len(urlscan_data["verdicts"]["overall"]["brands"]) < 1:
         logging.error(">>>> Brands invalid")
-        json_dataset["reject_details"] = "Not a phishing (by urlscan)"
-        return False, json_dataset
+        dataset_info["reject_details"] = "Not a phishing (by urlscan)"
+        return Exception("Not phishing"), dataset_info, urlscan_data
 
-    dom_req = request_with_proxy(f"https://urlscan.io/dom/{uuid}/")
+    # get dom html
+    dom_req = request_helper(f"https://urlscan.io/dom/{uuid}/")
+    if dom_req == None:
+        return Exception("Error getting dom html"), dataset_info, urlscan_data
     dom_req.encoding = 'utf-8'
 
-    if len(dom_req.text) < 30:
-        logging.error("Can't save content because the len is less than 30")
-        json_dataset["reject_details"] = "Can't save content because the len is less than 30"
-        return False, json_dataset
+    if len(dom_req.text) < int(os.getenv("MIN_CONTENT_LENGTH")):
+        logging.error("Page content too short")
+        dataset_info["reject_details"] = "Page content too short"
+        return Exception("Page content too short"), dataset_info, urlscan_data
     
-    json_dataset["content_length"] = len(dom_req.text)
+    dataset_info["content_length"] = len(dom_req.text)
 
     # Clear temp dir
     temp_dir = uuid
@@ -186,23 +212,23 @@ def save_dataset(uuid, fish_id):
     # Check is url is alive
     is_alive = False
     try:
-        reqx = requests.get(scam_url, allow_redirects=False, verify=False)
-        json_dataset["http_status"] = reqx.status_code
+        reqx = requests.get(urlscan_data["page"]["url"], allow_redirects=False, verify=False)
+        dataset_info["http_status_code"] = reqx.status_code
         if reqx.status_code < 500:
             is_alive = True
-    except Exception as ex: json_dataset["http_status"] = -1
+    except Exception as ex: None
         
     if not is_alive:
         logging.error(">>>> Scampage is {}", "DEAD")
         remove_dir(f"datasets/{temp_dir}")
-        json_dataset["reject_details"] = "Can't reach scampage"
-        return False, json_dataset
+        dataset_info["reject_details"] = "Can't reach scampage"
+        return Exception("Can't reach scampage"), dataset_info, urlscan_data
 
     logging.info(">>>> Scampage is {} [{}]", "ALIVE", reqx.status_code)
     
-    json_dataset["assets_downloaded"] = save_webpage(scam_url, html_content=dom_req.text, saved_path=f"datasets/{temp_dir}")
+    dataset_info["assets_downloaded"] = save_webpage(urlscan_data["page"]["url"], html_content=dom_req.text, saved_path=f"datasets/{temp_dir}")
 
-    # Prepare to move temp folder to actualy dataset
+    # Prepare to move temp folder to actual dataset
     # dataset_brand = "-".join(brands)
     # dataset_index = 1
     # while(os.path.exists(f"datasets/{dataset_brand}-{dataset_index}")):
@@ -211,15 +237,15 @@ def save_dataset(uuid, fish_id):
     # dataset_path = f"datasets/{dataset_brand}-{dataset_index}"
     dataset_path = f"datasets/{fish_id}"
     os.rename(f"datasets/{temp_dir}", dataset_path)
-    json_dataset["dataset_path"] = dataset_path
-    json_dataset["htmldom_path"] = f"{dataset_path}/index.html"
+    dataset_info["dataset_path"] = dataset_path
+    dataset_info["htmldom_path"] = f"{dataset_path}/index.html"
 
     # with open("datasets/info.json", "a") as outfile:
     #     json.dump(json_dataset, outfile)
     #     outfile.write("\n")
 
     logging.info(">>>> Download complete, saved to {}", dataset_path)
-    return True, json_dataset
+    return None, dataset_info, urlscan_data
 
 if __name__ == "__main__":
     while True:
@@ -238,7 +264,7 @@ if __name__ == "__main__":
         # Create the jobs
         data = {
             "ref_url": fish_id,
-            "http_status": None,
+            "http_status_code": None,
             "save_status": None,
             "details": None,
             "worker": os.getenv("WORKER_NAME"),
@@ -248,61 +274,93 @@ if __name__ == "__main__":
         job_id = JOBS.insert_one(data).inserted_id
 
         # Update fish as processed
-        URL_COLLECTIONS.update_one({"_id": fish_id}, { "$set": { "status": "processed", "updated": datetime.today().replace(microsecond=0)} })
+        URL_COLLECTIONS.update_one({"_id": fish_id}, { "$set": { "status": "processed", "updated_at": datetime.today().replace(microsecond=0)} })
 
-        urlscan_uuids = get_urlscan_result(url)
+        urlscan_uuids = urlscan_search(url)
         logging.info("FOUND {} scan from urlscan.io", len(urlscan_uuids))
-        save_ok = False
-        save_result = None
+        err = False
+        dataset_info = None
 
         if len(urlscan_uuids) > 0:
             for uuid in urlscan_uuids:
                 logging.info(">> Downloading UUID {}", uuid)
-                save_ok, save_result = save_dataset(uuid, fish_id)
+                err, dataset_info, urlscan_data = save_dataset(uuid, fish_id)
 
-                if save_result["reject_details"] == "Brands blacklisted":
+                if dataset_info["reject_details"] == "Brands blacklisted":
                     logging.info(">> Downloading UUID {} : {}", uuid, "STOPPED")
                     break
                 
-                if save_ok == True:
+                if err == None:
                     logging.info(">> Downloading UUID {} : {}", uuid, "OK")
                     break
                 else:
                     logging.error(">> Downloading UUID {} : {}", uuid, "FAILED")
 
-            if save_ok:
-                JOBS.update_one({"_id": job_id}, { "$set": { "http_status": save_result["http_status"], "save_status": "success", "details": "OK", "updated": datetime.today().replace(microsecond=0)} })
+            if err == None:
+                JOBS.update_one({"_id": job_id}, { "$set": { "http_status_code": dataset_info["http_status_code"], "save_status": "success", "details": "OK", "updated_at": datetime.today().replace(microsecond=0)} })
+
+                err, whois_data = whoisxmlapi(domain=urlscan_data["page"]["domain"])
+                err, ip_data = ipwhois(ip=urlscan_data["stats"]["ipStats"][0]["ip"])
+
+                domain_age = None
+                if whois_data.get("created_date", None) != None:
+                    domain_age = (fish["created_at"] - datetime.strptime(whois_data["created_date"], "%Y-%m-%dT%H:%M:%SZ")).days
+
+                # get dictionary values even if key is not present
                 data = {
                     "ref_url": fish_id,
                     "ref_job": job_id,
-                    "date_scrapped": save_result["date_scrapped"],
-                    "http_status": save_result["http_status"],
-                    "domain": save_result["domain"],
-                    "assets_downloaded":save_result["assets_downloaded"],
-                    "content_length":save_result["content_length"],
-                    "url": save_result["url"],
-                    "categories": save_result["categories"],
-                    "brands": save_result["brands"],
-                    "dataset_path": save_result["dataset_path"],
-                    "htmldom_path": save_result["htmldom_path"],
-                    "scrapped_from": save_result["scrapped_from"],
-                    "urlscan_uuid": save_result["urlscan_uuid"],
+                    "entry_date": datetime.today().replace(microsecond=0),
+                    "url": urlscan_data["page"]["url"],
+                    "folder_path": dataset_info["dataset_path"],
+                    "htmldom_path": dataset_info["htmldom_path"],
                     "status": "new",
+                    "http_status_code": dataset_info["http_status_code"],
+                    "assets_downloaded": dataset_info["assets_downloaded"],
+                    "brands": urlscan_data["verdicts"]["overall"]["brands"],
+                    "urlscan_uuid": dataset_info["urlscan_uuid"],
+                    "screenshot_path": None,
+                    "domain_name": urlscan_data["page"]["domain"],
+                    "whois_registrar": whois_data.get("registrar", None),
+                    "whois_registrar_url": whois_data.get("registrar_url", None),
+                    "whois_registry_created_at": whois_data.get("created_date", None),
+                    "whois_registry_expired_at": whois_data.get("expires_date", None),
+                    "whois_registry_updated_at": whois_data.get("updated_date", None),
+                    "whois_domain_age": domain_age,
+                    "remote_ip_address": urlscan_data["stats"]["ipStats"][0]["ip"],
+                    "remote_port": urlscan_data["data"]["requests"][0]["response"]["response"]["remotePort"],
+                    "remote_ip_country_name": ip_data.get("country_name", None),
+                    "remote_ip_isp": ip_data.get("isp", None),
+                    "remote_ip_domain": ip_data.get("domain", None),
+                    "remote_ip_asn": ip_data.get("asn", None),
+                    "remote_ip_isp_org": ip_data.get("org", None),
+                    "protocol": urlscan_data["data"]["requests"][0]["response"]["response"]["protocol"],
+                    "security_state": urlscan_data["data"]["requests"][0]["response"]["response"]["securityState"],
+                    "security_protocol": None,
+                    "security_issuer": None,
+                    "security_valid_from": None,
+                    "security_valid_to": None,
                     "created_at": datetime.today().replace(microsecond=0),
                     "updated_at": datetime.today().replace(microsecond=0),
                     "deleted_at": None
                 }
+
+                if data["security_state"] == "secure":
+                    data["security_protocol"] = urlscan_data["data"]["requests"][0]["response"]["response"]["securityDetails"]["protocol"]
+                    data["security_issuer"] = urlscan_data["data"]["requests"][0]["response"]["response"]["securityDetails"]["issuer"]
+                    data["security_valid_from"] = urlscan_data["data"]["requests"][0]["response"]["response"]["securityDetails"]["validFrom"]
+                    data["security_valid_to"] = urlscan_data["data"]["requests"][0]["response"]["response"]["securityDetails"]["validTo"]
                 
                 DATASETS.insert_one(data)
 
                 # Compress and encrypt
-                compress_and_upload(save_result["dataset_path"], f"{fish_id}.7z")
+                compress_and_upload(dataset_info["dataset_path"], f"{fish_id}.7z")
 
             else:
-                JOBS.update_one({"_id": job_id}, { "$set": { "http_status": save_result["http_status"], "save_status": "failed", "details": save_result["reject_details"], "updated": datetime.today().replace(microsecond=0)} })
+                JOBS.update_one({"_id": job_id}, { "$set": { "http_status_code": dataset_info["http_status_code"], "save_status": "failed", "details": dataset_info["reject_details"], "updated_at": datetime.today().replace(microsecond=0)} })
 
         else:
-            JOBS.update_one({"_id": job_id}, { "$set": { "http_status": None, "save_status": "failed", "details": "Domain not found in urlscan.io", "updated": datetime.today().replace(microsecond=0)} })
+            JOBS.update_one({"_id": job_id}, { "$set": { "http_status_code": None, "save_status": "failed", "details": "Domain not found in urlscan.io", "updated_at": datetime.today().replace(microsecond=0)} })
 
         # Update fish as executed
-        URL_COLLECTIONS.update_one({"_id": fish_id}, { "$set": { "status": "done", "updated": datetime.today().replace(microsecond=0)} })
+        URL_COLLECTIONS.update_one({"_id": fish_id}, { "$set": { "status": "done", "updated_at": datetime.today().replace(microsecond=0)} })
