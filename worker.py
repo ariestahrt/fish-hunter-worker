@@ -52,7 +52,7 @@ DATASETS = DB["datasets"]
 
 def read_file(filename):
 	try:
-		with open(filename, 'r', encoding="utf8") as f:
+		with open(filename, 'r') as f:
 			data = f.read()
 		return data
 
@@ -119,11 +119,16 @@ def urlscan_search(url):
     req = request_helper(endpoint)
     # save to file
     
-    with open("urlscan.json", "w") as f:
-        f.write(req.text)
+    try:
+        with open("urlscan.json", "w") as f:
+            f.write(req.text)
+    except: None
 
-    res = json.loads(req.text)
-
+    try:
+        res = json.loads(req.text)
+    except:
+        return []
+    
     try:
         if res["total"] < 1 : return []
     except:
@@ -304,7 +309,12 @@ if __name__ == "__main__":
 
                 domain_age = None
                 if whois_data.get("created_date", None) != None:
-                    domain_age = (fish["created_at"] - datetime.strptime(whois_data["created_date"], "%Y-%m-%dT%H:%M:%SZ")).days
+                    try:
+                        domain_age = (fish["created_at"] - datetime.strptime(whois_data["created_date"], "%Y-%m-%dT%H:%M:%SZ")).days
+                    except Exception:
+                        try:
+                            domain_age = (fish["created_at"] - datetime.strptime(whois_data["created_date"], "%Y-%m-%d")).days
+                        except Exception: None
 
                 # get dictionary values even if key is not present
                 data = {
@@ -321,6 +331,7 @@ if __name__ == "__main__":
                     "urlscan_uuid": dataset_info["urlscan_uuid"],
                     "screenshot_path": None,
                     "domain_name": urlscan_data["page"]["domain"],
+                    "whois_lookup_text": whois_data.get("text", None),
                     "whois_registrar": whois_data.get("registrar", None),
                     "whois_registrar_url": whois_data.get("registrar_url", None),
                     "whois_registry_created_at": whois_data.get("created_date", None),

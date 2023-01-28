@@ -8,3 +8,4 @@ __pycache__/
 whoisxml_api_keys.txt
 *.json
 cron.sh
+test*

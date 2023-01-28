@@ -25,6 +25,11 @@ def whoisxmlapi(domain):
         if response.status_code != 200:
             return Exception('API Error'), None
         
+        # save to file
+        with open('whoisxmlapi.json', 'w') as f:
+            f.write(response.text)
+        
+        rtr["text"] = response.text
         rtr["domain_name"] = response.json()["WhoisRecord"]["domainName"]
         rtr["registrar_name"] = response.json()["WhoisRecord"]["registrarName"]
         

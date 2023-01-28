@@ -21,7 +21,7 @@ def logs(*arg):
 
 def read_file(filename):
 	try:
-		with open(filename, 'r', encoding="utf8") as f:
+		with open(filename, 'r') as f:
 			data = f.read()
 		return data
 
@@ -198,7 +198,7 @@ def save_webpage(url, html_content="", saved_path="result"):
 
     if html_content == "": html_content = get_content(url).text
     # Write HTML first
-    with open(normalize_path(saved_path+"/index.html"), "w") as f: f.write(html_content)
+    with open(normalize_path(saved_path+"/index.html"), "w", encoding='utf-8') as f: f.write(html_content)
     html_tag_cssjs = { "link" : "href", "script" : "src", "img":"src" }
 
     # Collect assets
