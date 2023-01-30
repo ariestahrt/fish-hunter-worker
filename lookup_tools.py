@@ -4,8 +4,29 @@ import json
 import os
 import random
 from dotenv import load_dotenv
+from datetime import date, datetime, timedelta
 
 load_dotenv()
+
+def convert_date(date_str):
+    rtr = None
+    dateformat = [
+        "%Y-%m-%dT%H:%M:%SZ",
+        "%Y-%m-%d",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M:%S.%f",
+        "%Y-%m-%d %H:%M:%S.%f%z",
+        "%Y-%m-%d %H:%M:%S.%f%Z",
+    ]
+
+    for f in dateformat:
+        try:
+            rtr = datetime.strptime(date_str, f)
+            break
+        except:
+            pass
+    
+    return rtr
 
 def whoisxmlapi(domain):
     print("DOMAIN ==>", domain)
@@ -41,6 +62,12 @@ def whoisxmlapi(domain):
         rtr["created_date"] = response.json()["WhoisRecord"]["registryData"]["createdDate"]
         rtr["updated_date"] = response.json()["WhoisRecord"]["registryData"]["updatedDate"]
         rtr["expires_date"] = response.json()["WhoisRecord"]["registryData"]["expiresDate"]
+
+        # convert date
+        rtr["created_date"] = convert_date(rtr["created_date"])
+        rtr["updated_date"] = convert_date(rtr["updated_date"])
+        rtr["expires_date"] = convert_date(rtr["expires_date"])
+
         rtr["name_servers"] = response.json()["WhoisRecord"]["registryData"]["nameServers"]["hostNames"]
         return None, rtr
     except Exception as e:

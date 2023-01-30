@@ -309,12 +309,7 @@ if __name__ == "__main__":
 
                 domain_age = None
                 if whois_data.get("created_date", None) != None:
-                    try:
-                        domain_age = (fish["created_at"] - datetime.strptime(whois_data["created_date"], "%Y-%m-%dT%H:%M:%SZ")).days
-                    except Exception:
-                        try:
-                            domain_age = (fish["created_at"] - datetime.strptime(whois_data["created_date"], "%Y-%m-%d")).days
-                        except Exception: None
+                    domain_age = (fish["created_at"] - whois_data["created_date"]).days
 
                 # get dictionary values even if key is not present
                 data = {
@@ -361,7 +356,10 @@ if __name__ == "__main__":
                     data["security_issuer"] = urlscan_data["data"]["requests"][0]["response"]["response"]["securityDetails"]["issuer"]
                     data["security_valid_from"] = urlscan_data["data"]["requests"][0]["response"]["response"]["securityDetails"]["validFrom"]
                     data["security_valid_to"] = urlscan_data["data"]["requests"][0]["response"]["response"]["securityDetails"]["validTo"]
-                
+
+                    # convert to datetime
+                    data["security_valid_from"] = datetime.fromtimestamp(data["security_valid_from"])
+                    data["security_valid_to"] = datetime.fromtimestamp(data["security_valid_to"])
                 DATASETS.insert_one(data)
 
                 # Compress and encrypt
