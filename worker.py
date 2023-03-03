@@ -2,16 +2,17 @@ import requests, re, json, os
 from urllib.parse import urlparse
 from pymongo import MongoClient
 from datetime import date, datetime, timedelta
-from webpage_saver import save_webpage
-from s3uploader import compress_and_upload
-from lookup_tools import whoisxmlapi, ipwhois
 from pathlib import Path
 from dotenv import load_dotenv
-
-
 import logging
 import sys
 import time, random
+
+from utils.webpage_saver import save_webpage
+from utils.s3 import compress_and_upload, upload_image
+from utils.lookup_tools import whoisxmlapi, ipwhois
+from utils.feature_extractor import get_dataset_features
+from utils.selenium_ss import screenshot
 
 from colargulog import ColorizedArgsFormatter
 from colargulog import BraceFormatStyleFormatter
@@ -233,21 +234,11 @@ def save_dataset(uuid, fish_id):
     
     dataset_info["assets_downloaded"] = save_webpage(urlscan_data["page"]["url"], html_content=dom_req.text, saved_path=f"datasets/{temp_dir}")
 
-    # Prepare to move temp folder to actual dataset
-    # dataset_brand = "-".join(brands)
-    # dataset_index = 1
-    # while(os.path.exists(f"datasets/{dataset_brand}-{dataset_index}")):
-    #     dataset_index+=1
-
     # dataset_path = f"datasets/{dataset_brand}-{dataset_index}"
     dataset_path = f"datasets/{fish_id}"
     os.rename(f"datasets/{temp_dir}", dataset_path)
     dataset_info["dataset_path"] = dataset_path
     dataset_info["htmldom_path"] = f"{dataset_path}/index.html"
-
-    # with open("datasets/info.json", "a") as outfile:
-    #     json.dump(json_dataset, outfile)
-    #     outfile.write("\n")
 
     logging.info(">>>> Download complete, saved to {}", dataset_path)
     return None, dataset_info, urlscan_data
@@ -305,13 +296,29 @@ if __name__ == "__main__":
                 JOBS.update_one({"_id": job_id}, { "$set": { "http_status_code": dataset_info["http_status_code"], "save_status": "success", "details": "OK", "updated_at": datetime.today().replace(microsecond=0)} })
 
                 err, whois_data = whoisxmlapi(domain=urlscan_data["page"]["domain"])
+                if err != None:
+                    whois_data = {}
                 err, ip_data = ipwhois(ip=urlscan_data["stats"]["ipStats"][0]["ip"])
 
                 domain_age = None
                 if whois_data.get("created_date", None) != None:
                     domain_age = (fish["created_at"] - whois_data["created_date"]).days
 
-                # get dictionary values even if key is not present
+                # extract features
+                f_text, f_html, f_css = get_dataset_features(dataset_info["dataset_path"])
+
+                # screenshot
+                ds_abs_path = os.path.abspath(dataset_info["dataset_path"])
+                index_path = "file://"+ds_abs_path+"/index.html"
+
+                screenshot_path = dataset_info["dataset_path"]+"/screenshot.jpg"
+                logger.info("Taking screenshot to {}", screenshot_path)
+                screenshot(index_path, screenshot_path)
+
+                # upload screenshot to s3
+                upload_image("fh-ss-images", local_file=dataset_info["dataset_path"]+"/screenshot.jpg", dest=f"dataset_images/{str(fish_id)}.jpg")
+                screenshot_path = f"https://fh-ss-images.s3-ap-southeast-1.amazonaws.com/dataset_images/{str(fish_id)}.jpg"
+
                 data = {
                     "ref_url": fish_id,
                     "ref_job": job_id,
@@ -324,7 +331,7 @@ if __name__ == "__main__":
                     "assets_downloaded": dataset_info["assets_downloaded"],
                     "brands": urlscan_data["verdicts"]["overall"]["brands"],
                     "urlscan_uuid": dataset_info["urlscan_uuid"],
-                    "screenshot_path": None,
+                    "screenshot_path": screenshot_path,
                     "domain_name": urlscan_data["page"]["domain"],
                     "whois_lookup_text": whois_data.get("text", None),
                     "whois_registrar": whois_data.get("registrar", None),
@@ -346,10 +353,19 @@ if __name__ == "__main__":
                     "security_issuer": None,
                     "security_valid_from": None,
                     "security_valid_to": None,
+                    "features": {
+                        "text": f_text,
+                        "html": f_html,
+                        "css": f_css
+                    },
                     "created_at": datetime.today().replace(microsecond=0),
                     "updated_at": datetime.today().replace(microsecond=0),
                     "deleted_at": None
                 }
+
+                with open(f"{dataset_info['dataset_path']}/info.json", "a") as outfile:
+                    json.dump(data, outfile, indent=4, default=str)
+                    outfile.write("\n")
 
                 if data["security_state"] == "secure":
                     data["security_protocol"] = urlscan_data["data"]["requests"][0]["response"]["response"]["securityDetails"]["protocol"]
