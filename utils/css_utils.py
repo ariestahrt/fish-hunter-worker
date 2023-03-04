@@ -179,8 +179,12 @@ def get_css_from_html(html_text, html_root):
         else:
             print("Downloading", files)
             # download from online source
-            req = requests.get(files)
-            css_text = req.text
+            try:
+                req = requests.get(files)
+                css_text = req.text
+            except Exception as ex:
+                print("[X] error while downloading files", ex)
+                continue
         
         convert_csstext_to_cssdict(css_text, css_dict, html_text=html_text)
 
