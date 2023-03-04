@@ -27,8 +27,8 @@ def remove_hidden_element(html_text, html_root):
                 continue
         
         if element.get('width') != None and element.get('height') != None:
-            width_val = float(re.findall('\d*\.?\d+',element.get('width'))[0])
-            height_val = float(re.findall('\d*\.?\d+',element.get('height'))[0])
+            width_val = float(re.findall('\d*\.?\d+',element.get('width'))[0]) if len(re.findall('\d*\.?\d+',element.get('width'))) > 0 else 9999
+            height_val = float(re.findall('\d*\.?\d+',element.get('height'))[0]) if len(re.findall('\d*\.?\d+',element.get('height'))) > 0 else 9999
             wmin = 0.0 ; hmin = 0.0
 
             if "px" in element.get('width'): wmin = 1.0
