@@ -4,6 +4,7 @@ from pymongo import MongoClient
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from dotenv import load_dotenv
+from langdetect import detect
 import logging
 import sys
 import time, random
@@ -307,6 +308,9 @@ if __name__ == "__main__":
                 # extract features
                 f_text, f_html, f_css = get_dataset_features(dataset_info["dataset_path"])
 
+                # detect language
+                lang = detect(f_text)
+
                 # screenshot
                 ds_abs_path = os.path.abspath(dataset_info["dataset_path"])
                 index_path = "file://"+ds_abs_path+"/index.html"
@@ -358,6 +362,7 @@ if __name__ == "__main__":
                         "html": f_html,
                         "css": f_css
                     },
+                    "language": lang,
                     "created_at": datetime.today().replace(microsecond=0),
                     "updated_at": datetime.today().replace(microsecond=0),
                     "deleted_at": None

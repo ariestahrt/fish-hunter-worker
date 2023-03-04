@@ -34,7 +34,9 @@ def whoisxmlapi(domain):
     print("DOMAIN ==>", domain)
     # get random api key
     api_keys = open(os.getenv('WHOISXML_API_KEYS'), 'r').read().splitlines()
-    api_key = random.choice(api_keys)
+    if len(api_keys) == 0: api_keys = [""]
+    api_key = api_keys[0]
+
     try:
         url = 'https://www.whoisxmlapi.com/whoisserver/WhoisService'
         params = {
@@ -43,6 +45,15 @@ def whoisxmlapi(domain):
             'outputFormat': 'JSON'
         }
         response = requests.get(url, params=params)
+
+        if response.status_code == 401:
+            # remove api key from file
+            with open(os.getenv('WHOISXML_API_KEYS'), 'r') as f:
+                lines = f.readlines()
+            with open(os.getenv('WHOISXML_API_KEYS'), 'w') as f:
+                for line in lines:
+                    if line.strip("\n") != api_key:
+                        f.write(line)
 
         rtr = {}
         if response.status_code != 200:
