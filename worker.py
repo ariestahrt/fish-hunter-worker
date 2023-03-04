@@ -254,143 +254,148 @@ if __name__ == "__main__":
             time.sleep(5*60)
             continue
         
-        fish_id = fish["_id"]
-        url = fish["url"]
-        logging.info("FISH {}", fish["url"])
+        try:
+            fish_id = fish["_id"]
+            url = fish["url"]
+            logging.info("FISH {}", fish["url"])
 
-        # Create the jobs
-        data = {
-            "ref_url": fish_id,
-            "http_status_code": None,
-            "save_status": None,
-            "details": None,
-            "worker": os.getenv("WORKER_NAME"),
-            "created_at": datetime.today().replace(microsecond=0),
-            "updated_at": datetime.today().replace(microsecond=0)
-        }
-        job_id = JOBS.insert_one(data).inserted_id
+            # Create the jobs
+            data = {
+                "ref_url": fish_id,
+                "http_status_code": None,
+                "save_status": None,
+                "details": None,
+                "worker": os.getenv("WORKER_NAME"),
+                "created_at": datetime.today().replace(microsecond=0),
+                "updated_at": datetime.today().replace(microsecond=0)
+            }
+            job_id = JOBS.insert_one(data).inserted_id
 
-        # Update fish as processed
-        URL_COLLECTIONS.update_one({"_id": fish_id}, { "$set": { "status": "processed", "updated_at": datetime.today().replace(microsecond=0)} })
+            # Update fish as processed
+            URL_COLLECTIONS.update_one({"_id": fish_id}, { "$set": { "status": "processed", "updated_at": datetime.today().replace(microsecond=0)} })
 
-        urlscan_uuids = urlscan_search(url)
-        logging.info("FOUND {} scan from urlscan.io", len(urlscan_uuids))
-        err = False
-        dataset_info = None
+            urlscan_uuids = urlscan_search(url)
+            logging.info("FOUND {} scan from urlscan.io", len(urlscan_uuids))
+            err = False
+            dataset_info = None
 
-        if len(urlscan_uuids) > 0:
-            for uuid in urlscan_uuids:
-                logging.info(">> Downloading UUID {}", uuid)
-                err, dataset_info, urlscan_data = save_dataset(uuid, fish_id)
+            if len(urlscan_uuids) > 0:
+                for uuid in urlscan_uuids:
+                    logging.info(">> Downloading UUID {}", uuid)
+                    err, dataset_info, urlscan_data = save_dataset(uuid, fish_id)
 
-                if dataset_info["reject_details"] == "Brands blacklisted":
-                    logging.info(">> Downloading UUID {} : {}", uuid, "STOPPED")
-                    break
-                
+                    if dataset_info["reject_details"] == "Brands blacklisted":
+                        logging.info(">> Downloading UUID {} : {}", uuid, "STOPPED")
+                        break
+                    
+                    if err == None:
+                        logging.info(">> Downloading UUID {} : {}", uuid, "OK")
+                        break
+                    else:
+                        logging.error(">> Downloading UUID {} : {}", uuid, "FAILED")
+
                 if err == None:
-                    logging.info(">> Downloading UUID {} : {}", uuid, "OK")
-                    break
+                    JOBS.update_one({"_id": job_id}, { "$set": { "http_status_code": dataset_info["http_status_code"], "save_status": "success", "details": "OK", "updated_at": datetime.today().replace(microsecond=0)} })
+
+                    err, whois_data = whoisxmlapi(domain=urlscan_data["page"]["domain"])
+                    if err != None:
+                        whois_data = {}
+                    err, ip_data = ipwhois(ip=urlscan_data["stats"]["ipStats"][0]["ip"])
+
+                    domain_age = None
+                    if whois_data.get("created_date", None) != None:
+                        domain_age = (fish["created_at"] - whois_data["created_date"]).days
+
+                    # extract features
+                    f_text, f_html, f_css = get_dataset_features(dataset_info["dataset_path"])
+
+                    # detect language
+                    lang = detect(f_text)
+
+                    # screenshot
+                    ds_abs_path = os.path.abspath(dataset_info["dataset_path"])
+                    index_path = "file://"+ds_abs_path+"/index.html"
+
+                    screenshot_path = dataset_info["dataset_path"]+"/screenshot.jpg"
+                    logger.info("Taking screenshot to {}", screenshot_path)
+                    screenshot(index_path, screenshot_path)
+
+                    # upload screenshot to s3
+                    upload_image("fh-ss-images", local_file=dataset_info["dataset_path"]+"/screenshot.jpg", dest=f"dataset_images/{str(fish_id)}.jpg")
+                    screenshot_path = f"https://fh-ss-images.s3-ap-southeast-1.amazonaws.com/dataset_images/{str(fish_id)}.jpg"
+
+                    data = {
+                        "ref_url": fish_id,
+                        "ref_job": job_id,
+                        "entry_date": datetime.today().replace(microsecond=0),
+                        "url": urlscan_data["page"]["url"],
+                        "folder_path": dataset_info["dataset_path"],
+                        "htmldom_path": dataset_info["htmldom_path"],
+                        "status": "new",
+                        "http_status_code": dataset_info["http_status_code"],
+                        "assets_downloaded": dataset_info["assets_downloaded"],
+                        "brands": urlscan_data["verdicts"]["overall"]["brands"],
+                        "urlscan_uuid": dataset_info["urlscan_uuid"],
+                        "screenshot_path": screenshot_path,
+                        "domain_name": urlscan_data["page"]["domain"],
+                        "whois_lookup_text": whois_data.get("text", None),
+                        "whois_registrar": whois_data.get("registrar", None),
+                        "whois_registrar_url": whois_data.get("registrar_url", None),
+                        "whois_registry_created_at": whois_data.get("created_date", None),
+                        "whois_registry_expired_at": whois_data.get("expires_date", None),
+                        "whois_registry_updated_at": whois_data.get("updated_date", None),
+                        "whois_domain_age": domain_age,
+                        "remote_ip_address": urlscan_data["stats"]["ipStats"][0]["ip"],
+                        "remote_port": urlscan_data["data"]["requests"][0]["response"]["response"]["remotePort"],
+                        "remote_ip_country_name": ip_data.get("country_name", None),
+                        "remote_ip_isp": ip_data.get("isp", None),
+                        "remote_ip_domain": ip_data.get("domain", None),
+                        "remote_ip_asn": ip_data.get("asn", None),
+                        "remote_ip_isp_org": ip_data.get("org", None),
+                        "protocol": urlscan_data["data"]["requests"][0]["response"]["response"]["protocol"],
+                        "security_state": urlscan_data["data"]["requests"][0]["response"]["response"]["securityState"],
+                        "security_protocol": None,
+                        "security_issuer": None,
+                        "security_valid_from": None,
+                        "security_valid_to": None,
+                        "features": {
+                            "text": f_text,
+                            "html": f_html,
+                            "css": f_css
+                        },
+                        "language": lang,
+                        "created_at": datetime.today().replace(microsecond=0),
+                        "updated_at": datetime.today().replace(microsecond=0),
+                        "deleted_at": None
+                    }
+
+                    with open(f"{dataset_info['dataset_path']}/info.json", "a") as outfile:
+                        json.dump(data, outfile, indent=4, default=str)
+                        outfile.write("\n")
+
+                    if data["security_state"] == "secure":
+                        data["security_protocol"] = urlscan_data["data"]["requests"][0]["response"]["response"]["securityDetails"]["protocol"]
+                        data["security_issuer"] = urlscan_data["data"]["requests"][0]["response"]["response"]["securityDetails"]["issuer"]
+                        data["security_valid_from"] = urlscan_data["data"]["requests"][0]["response"]["response"]["securityDetails"]["validFrom"]
+                        data["security_valid_to"] = urlscan_data["data"]["requests"][0]["response"]["response"]["securityDetails"]["validTo"]
+
+                        # convert to datetime
+                        data["security_valid_from"] = datetime.fromtimestamp(data["security_valid_from"])
+                        data["security_valid_to"] = datetime.fromtimestamp(data["security_valid_to"])
+                    DATASETS.insert_one(data)
+
+                    # Compress and encrypt
+                    compress_and_upload(dataset_info["dataset_path"], f"{fish_id}.7z")
+
                 else:
-                    logging.error(">> Downloading UUID {} : {}", uuid, "FAILED")
-
-            if err == None:
-                JOBS.update_one({"_id": job_id}, { "$set": { "http_status_code": dataset_info["http_status_code"], "save_status": "success", "details": "OK", "updated_at": datetime.today().replace(microsecond=0)} })
-
-                err, whois_data = whoisxmlapi(domain=urlscan_data["page"]["domain"])
-                if err != None:
-                    whois_data = {}
-                err, ip_data = ipwhois(ip=urlscan_data["stats"]["ipStats"][0]["ip"])
-
-                domain_age = None
-                if whois_data.get("created_date", None) != None:
-                    domain_age = (fish["created_at"] - whois_data["created_date"]).days
-
-                # extract features
-                f_text, f_html, f_css = get_dataset_features(dataset_info["dataset_path"])
-
-                # detect language
-                lang = detect(f_text)
-
-                # screenshot
-                ds_abs_path = os.path.abspath(dataset_info["dataset_path"])
-                index_path = "file://"+ds_abs_path+"/index.html"
-
-                screenshot_path = dataset_info["dataset_path"]+"/screenshot.jpg"
-                logger.info("Taking screenshot to {}", screenshot_path)
-                screenshot(index_path, screenshot_path)
-
-                # upload screenshot to s3
-                upload_image("fh-ss-images", local_file=dataset_info["dataset_path"]+"/screenshot.jpg", dest=f"dataset_images/{str(fish_id)}.jpg")
-                screenshot_path = f"https://fh-ss-images.s3-ap-southeast-1.amazonaws.com/dataset_images/{str(fish_id)}.jpg"
-
-                data = {
-                    "ref_url": fish_id,
-                    "ref_job": job_id,
-                    "entry_date": datetime.today().replace(microsecond=0),
-                    "url": urlscan_data["page"]["url"],
-                    "folder_path": dataset_info["dataset_path"],
-                    "htmldom_path": dataset_info["htmldom_path"],
-                    "status": "new",
-                    "http_status_code": dataset_info["http_status_code"],
-                    "assets_downloaded": dataset_info["assets_downloaded"],
-                    "brands": urlscan_data["verdicts"]["overall"]["brands"],
-                    "urlscan_uuid": dataset_info["urlscan_uuid"],
-                    "screenshot_path": screenshot_path,
-                    "domain_name": urlscan_data["page"]["domain"],
-                    "whois_lookup_text": whois_data.get("text", None),
-                    "whois_registrar": whois_data.get("registrar", None),
-                    "whois_registrar_url": whois_data.get("registrar_url", None),
-                    "whois_registry_created_at": whois_data.get("created_date", None),
-                    "whois_registry_expired_at": whois_data.get("expires_date", None),
-                    "whois_registry_updated_at": whois_data.get("updated_date", None),
-                    "whois_domain_age": domain_age,
-                    "remote_ip_address": urlscan_data["stats"]["ipStats"][0]["ip"],
-                    "remote_port": urlscan_data["data"]["requests"][0]["response"]["response"]["remotePort"],
-                    "remote_ip_country_name": ip_data.get("country_name", None),
-                    "remote_ip_isp": ip_data.get("isp", None),
-                    "remote_ip_domain": ip_data.get("domain", None),
-                    "remote_ip_asn": ip_data.get("asn", None),
-                    "remote_ip_isp_org": ip_data.get("org", None),
-                    "protocol": urlscan_data["data"]["requests"][0]["response"]["response"]["protocol"],
-                    "security_state": urlscan_data["data"]["requests"][0]["response"]["response"]["securityState"],
-                    "security_protocol": None,
-                    "security_issuer": None,
-                    "security_valid_from": None,
-                    "security_valid_to": None,
-                    "features": {
-                        "text": f_text,
-                        "html": f_html,
-                        "css": f_css
-                    },
-                    "language": lang,
-                    "created_at": datetime.today().replace(microsecond=0),
-                    "updated_at": datetime.today().replace(microsecond=0),
-                    "deleted_at": None
-                }
-
-                with open(f"{dataset_info['dataset_path']}/info.json", "a") as outfile:
-                    json.dump(data, outfile, indent=4, default=str)
-                    outfile.write("\n")
-
-                if data["security_state"] == "secure":
-                    data["security_protocol"] = urlscan_data["data"]["requests"][0]["response"]["response"]["securityDetails"]["protocol"]
-                    data["security_issuer"] = urlscan_data["data"]["requests"][0]["response"]["response"]["securityDetails"]["issuer"]
-                    data["security_valid_from"] = urlscan_data["data"]["requests"][0]["response"]["response"]["securityDetails"]["validFrom"]
-                    data["security_valid_to"] = urlscan_data["data"]["requests"][0]["response"]["response"]["securityDetails"]["validTo"]
-
-                    # convert to datetime
-                    data["security_valid_from"] = datetime.fromtimestamp(data["security_valid_from"])
-                    data["security_valid_to"] = datetime.fromtimestamp(data["security_valid_to"])
-                DATASETS.insert_one(data)
-
-                # Compress and encrypt
-                compress_and_upload(dataset_info["dataset_path"], f"{fish_id}.7z")
+                    JOBS.update_one({"_id": job_id}, { "$set": { "http_status_code": dataset_info["http_status_code"], "save_status": "failed", "details": dataset_info["reject_details"], "updated_at": datetime.today().replace(microsecond=0)} })
 
             else:
-                JOBS.update_one({"_id": job_id}, { "$set": { "http_status_code": dataset_info["http_status_code"], "save_status": "failed", "details": dataset_info["reject_details"], "updated_at": datetime.today().replace(microsecond=0)} })
+                JOBS.update_one({"_id": job_id}, { "$set": { "http_status_code": None, "save_status": "failed", "details": "Domain not found in urlscan.io", "updated_at": datetime.today().replace(microsecond=0)} })
 
-        else:
-            JOBS.update_one({"_id": job_id}, { "$set": { "http_status_code": None, "save_status": "failed", "details": "Domain not found in urlscan.io", "updated_at": datetime.today().replace(microsecond=0)} })
-
-        # Update fish as executed
-        URL_COLLECTIONS.update_one({"_id": fish_id}, { "$set": { "status": "done", "updated_at": datetime.today().replace(microsecond=0)} })
+            # Update fish as executed
+            URL_COLLECTIONS.update_one({"_id": fish_id}, { "$set": { "status": "done", "updated_at": datetime.today().replace(microsecond=0)} })
+        except Exception as e:
+            logger.error("Error while processing fish {}: {}", fish_id, e)
+            JOBS.update_one({"_id": job_id}, { "$set": { "http_status_code": None, "save_status": "failed", "details": str(e), "updated_at": datetime.today().replace(microsecond=0)} })
+            URL_COLLECTIONS.update_one({"_id": fish_id}, { "$set": { "status": "failed", "updated_at": datetime.today().replace(microsecond=0)} })
