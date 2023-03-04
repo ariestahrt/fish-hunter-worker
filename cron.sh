@@ -1,6 +1,8 @@
-# Run proxy scrapper
-# /usr/bin/python3 /root/http-proxy-list/main.py
-echo > /mnt/c/code/research/proxy-scraper/output.txt && /usr/bin/python3 /mnt/c/code/research/proxy-scraper/proxyScraper.py -p http
+# Run proxy scrapper every 24 hours
+# 0 0 * * * echo > /fish-hunter-worker/proxy-scraper/output.txt && /usr/local/bin/python3 /fish-hunter-worker/proxy-scraper/proxyScraper.py -p http
 
-# Remove app.log file
-rm /root/fish-hunter-worker/app.log
+# Remove app.log file every 24 hours
+# 0 0 * * * rm /fish-hunter-worker/app.log
+
+# Run url scrapper every 5 minutes
+# */5 * * * * /usr/local/bin/python3 /fish-hunter-worker/url_scrapper.py

@@ -19,7 +19,7 @@ options.add_argument('--allow-file-access-from-files')
 options.add_argument('--allow-file-access')
 options.add_argument('--allow-cross-origin-auth-prompt')
 
-driver = webdriver.Chrome(ChromeDriverManager().install(), options=options)
+driver = webdriver.Chrome(service=Service("/usr/local/bin/chromedriver"), options=options)
 
 driver.maximize_window()
 driver.set_window_size(1920, 1080)
