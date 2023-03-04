@@ -51,7 +51,7 @@ if __name__ == "__main__":
         if URL_COLLECTIONS.find_one({"url": url}) is None:
             URL_COLLECTIONS.insert_one({
                 "url": url,
-                "status": "new",
+                "status": "queued",
                 "source_url": "https://openphish.com/",
                 "source_name": "OpenPhish",
                 "created_at": datetime.now(),
