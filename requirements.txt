@@ -19,3 +19,4 @@ scikit-learn
 pandas
 numpy
 langdetect
+uuid

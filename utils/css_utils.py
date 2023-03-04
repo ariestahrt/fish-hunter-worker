@@ -8,20 +8,76 @@ import bs4
 import requests
 import re
 
-# ekstraksi css dari __clean__.css
-def extract_clean_css(dataset_root):
-    css_dict = {}
+# extract css propval from css file
+def extract_css_propval_from_file(file_path):
+    # Load the CSS file
+    with open(file_path, 'r') as f:
+        css_string = f.read()
 
-    # baca file __clean__.css
-    css_text = ""
-    with open(dataset_root + "/assets/__clean__.css", "r", encoding="utf-8") as f:
-        css_text = f.read()
-        
-    # conversi css teks ke kamus css
-    convert_csstext_to_cssdict(css_text, css_dict)
+    # Parse the CSS file using tinycss
+    stylesheet = tinycss.make_parser().parse_stylesheet(css_string)
 
-    # konversi kamus css ke properti dan nilai
-    css_propval = convert_cssdict_to_propval(css_dict)
+    # Extract the CSS properties and values as a dictionary
+    css_propval = {}
+    for rule in stylesheet.rules:
+        for declaration in rule.declarations:
+            property_name = declaration.name
+            property_value = [value.as_css().strip('\'"') for value in declaration.value]
+            property_value = [value for value in property_value if value != ' ']
+            
+            # print("property_value before", property_value, end=' ')
+            for value in property_value:
+                if 'rgba(' in value:
+                    try:
+                        color_values = value.replace('rgba(', '').replace(')', '').split(',')
+                        r, g, b, a = [int(float(cv.strip())) for cv in color_values]
+                        hex_value = f'#{r:02x}{g:02x}{b:02x}'
+                        # update the value in the list
+                        property_value[property_value.index(value)] = hex_value.upper()
+                    except Exception as e:
+                        pass
+                elif 'rgb(' in value:
+                    try:
+                        color_values = value.replace('rgb(', '').replace(')', '').split(',')
+                        r, g, b = [int(float(cv.strip())) for cv in color_values]
+                        hex_value = f'#{r:02x}{g:02x}{b:02x}'
+                        # update the value in the list
+                        property_value[property_value.index(value)] = hex_value.upper()
+                    except:
+                        pass
+                elif 'url(' in value:
+                    # trim the initial 'url(' and final ')'
+                    url_value = value[4:-1]
+                    # strip the quotes if present
+                    url_value = url_value.strip('\'"')
+                    # update the value in the list
+                    property_value[property_value.index(value)] = "url(" + url_value + ")"
+                
+                # detect if the value is hex color
+                if re.match(r'^#(?:[0-9a-fA-F]{3}){1,2}$', value):
+                    new_value = value.upper()
+                    # if the value is 3 characters long, convert to 6 characters
+                    if len(new_value) == 4:
+                        new_value = '#' + new_value[1] + new_value[1] + new_value[2] + new_value[2] + new_value[3] + new_value[3]
+                    
+                    # update the value in the list
+                    property_value[property_value.index(value)] = new_value
+                
+                # detect if the value is ' ' or ','
+                if value == ' ' or value == ',':
+                    property_value.remove(value)
+            
+            # print(" => ", property_value)
+            if property_name not in css_propval: css_propval[property_name] = []
+            for value in property_value:
+                if value not in css_propval[property_name]:
+                    # Add new value to the list if it's not already present
+                    css_propval[property_name].append(value)
+
+    # Remove duplicates from the list of values for each property
+    for property_name, property_value in css_propval.items():
+        css_propval[property_name] = list(set(property_value))
+    
     return css_propval
 
 def convert_cssdict_to_cssfile(css_dict, save_to="css_fixed.css"):
@@ -89,25 +145,6 @@ def get_notdisplayed_style(css_dict):
                 notdisplayed_css.append(selector)
 
     return notdisplayed_css
-
-def convert_cssdict_to_propval(css_dict):
-    css_propval = {}
-    for selector in css_dict.keys():
-        for props in css_dict[selector].keys():
-            if props not in css_propval.keys(): css_propval[props] = []
-            value_txt = css_dict[selector][props]
-
-            if "," in value_txt: # Usualy used in font family
-                values = value_txt.split(",")
-            else:
-                values = value_txt.split(" ")
-            
-            for value in values:
-                value = value.strip()
-                if value not in css_propval[props]:
-                    css_propval[props].append(value)
-
-    return css_propval
 
 # Return css dict
 def get_css_from_html(html_text, html_root):
