@@ -21,7 +21,7 @@ def logs(*arg):
 
 def read_file(filename):
 	try:
-		with open(filename, 'r') as f:
+		with open(filename, 'r', errors='ignore') as f:
 			data = f.read()
 		return data
 
