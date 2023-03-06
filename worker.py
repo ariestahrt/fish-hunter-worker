@@ -246,7 +246,9 @@ def save_dataset(uuid, fish_id):
 
 if __name__ == "__main__":
     while True:
-        fish = URL_COLLECTIONS.find_one({"status": "queued"})
+        # fish = URL_COLLECTIONS.find_one({"status": "queued"})
+        # find latest fish
+        fish = URL_COLLECTIONS.find_one({"status": "queued"}, sort=[("created_at", -1)])
         print(fish)
 
         if fish is None:
