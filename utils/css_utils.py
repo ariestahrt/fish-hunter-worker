@@ -81,6 +81,7 @@ def extract_css_propval_from_file(file_path):
     return css_propval
 
 def convert_cssdict_to_cssfile(css_dict, save_to="css_fixed.css"):
+    with open(save_to, "w") as f: f.write("") # Clear file
     for selector in css_dict.keys():
         props_value = ""
         for props in css_dict[selector].keys():
@@ -183,7 +184,7 @@ def get_css_from_html(html_text, html_root):
                 req = requests.get(files)
                 css_text = req.text
             except Exception as ex:
-                print("[X] error while downloading files", ex)
+                print("[X] error while downloading css file", ex)
                 continue
         
         convert_csstext_to_cssdict(css_text, css_dict, html_text=html_text)
