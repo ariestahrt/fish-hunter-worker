@@ -51,6 +51,7 @@ URL_COLLECTIONS = DB["urls"]
 SOURCES = DB["sources"]
 JOBS = DB["jobs"]
 DATASETS = DB["datasets"]
+CURRENT_PROXY = None
 
 def read_file(filename):
 	try:
@@ -66,12 +67,17 @@ def read_file(filename):
 BLACKLIST = read_file(os.getenv("BLACKLIST_PATH")).splitlines()
 
 def get_proxy():
+    global CURRENT_PROXY
+    if CURRENT_PROXY != None: return CURRENT_PROXY
+
     proxy_list = read_file(os.getenv("PROXY_PATH")).splitlines()
     proxy_random = random.choice(proxy_list)
     
-    return {"http": f"http://{proxy_random}", "https": f"http://{proxy_random}"}
+    CURRENT_PROXY = {"http": f"http://{proxy_random}", "https": f"http://{proxy_random}"}
+    return CURRENT_PROXY
 
 def request_helper(url):
+    global CURRENT_PROXY
     print("REQUEST HELPER:: ", url)
     if os.getenv("IS_PROXY_ENABLED") == "False":
         try:
@@ -89,7 +95,7 @@ def request_helper(url):
             return req
         except Exception as ex:
             print("> error: ", ex)
-            None
+            CURRENT_PROXY = None
 
 def remove_dir(directory):
     try:
@@ -160,15 +166,15 @@ def urlscan_uuid(uuid):
             return urlscan_res
         except: None
 
-'''
-    Download dataset and save to db
-
-    @param uuid: urlscan uuid
-    @param fish_id: fish id
-
-    @return: Exception, Datset Info, URLScan Info
-'''
 def save_dataset(uuid, fish_id):
+    '''
+        Download dataset and save to db
+
+        @param uuid: urlscan uuid
+        @param fish_id: fish id
+
+        @return: Exception, Datset Info, URLScan Info
+    '''
     urlscan_data = urlscan_uuid(uuid)
 
     logging.info(">>>> Domain {}", urlscan_data["page"]["domain"])
