@@ -91,7 +91,7 @@ def request_helper(url):
         try:
             proxy = get_proxy()
             print("> using proxy: ", proxy)
-            req = requests.get(url, proxies=proxy, timeout=2)
+            req = requests.get(url, proxies=proxy, timeout=3)
             return req
         except Exception as ex:
             print("> error: ", ex)
@@ -164,7 +164,9 @@ def urlscan_uuid(uuid):
             response = request_helper(f"https://urlscan.io/api/v1/result/{uuid}")
             urlscan_res = response.json()
             return urlscan_res
-        except: None
+        except:
+            logger.error("Error getting urlscan uuid: {}", uuid)
+            logger.error("Error: {}", response.text)
 
 def save_dataset(uuid, fish_id):
     '''
@@ -177,10 +179,13 @@ def save_dataset(uuid, fish_id):
     '''
     urlscan_data = urlscan_uuid(uuid)
 
-    logging.info(">>>> Domain {}", urlscan_data["page"]["domain"])
-    logging.info(">>>> URL {}", urlscan_data["page"]["url"])
-    logging.info(">>>> Brands {}", urlscan_data["verdicts"]["overall"]["brands"])
-
+    if urlscan_data.get("page") != None:
+        logging.info(">>>> Domain {}", urlscan_data["page"]["domain"])
+        logging.info(">>>> URL {}", urlscan_data["page"]["url"])
+        logging.info(">>>> Brands {}", urlscan_data["verdicts"]["overall"]["brands"])
+    else:
+        return Exception("URLScan data not found"), None, None
+    
     # Prepare json obj to save
     dataset_info = {
         "urlscan_uuid": uuid,

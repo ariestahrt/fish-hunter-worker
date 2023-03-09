@@ -155,15 +155,15 @@ def get_css_from_html(html_text, html_root):
     html = lxml.html.parse(StringIO(html_text))
     css_files = []
     for element in html.getroot().iter():
-        if element.tag == "link" and "stylesheet" in element.attrib["rel"]:
-            css_files.append(element.attrib["href"])
+        if element.tag == "link" and "stylesheet" in element.attrib.get("rel"):
+            css_files.append(element.attrib.get("href"))
         if element.tag == "style":
             indom_css += element.text_content()
         if isinstance(element, lxml.html.HtmlElement):
             if "style" in element.attrib.keys():
                 # just create random selector
                 random_str = ''.join(random.sample(string.ascii_lowercase, 8))
-                inline_css += "#custom_" + random_str + "{" + element.attrib["style"] + "}"
+                inline_css += "#custom_" + random_str + "{" + element.attrib.get("style") + "}"
 
     # Convert css to iterable object
     # and make sure the css is not useless [Exist in the html dom]
