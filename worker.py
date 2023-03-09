@@ -311,7 +311,10 @@ if __name__ == "__main__":
                 f_text, f_html, f_css = get_dataset_features(dataset_info["dataset_path"])
 
                 # detect language
-                lang = detect(f_text)
+                try:
+                    lang = detect(f_text)
+                except Exception as ex:
+                    lang = None
 
                 # screenshot
                 ds_abs_path = os.path.abspath(dataset_info["dataset_path"])
