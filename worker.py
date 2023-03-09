@@ -178,15 +178,8 @@ def save_dataset(uuid, fish_id):
         @return: Exception, Datset Info, URLScan Info
     '''
     urlscan_data = urlscan_uuid(uuid)
-
-    if urlscan_data.get("page") != None:
-        logging.info(">>>> Domain {}", urlscan_data["page"]["domain"])
-        logging.info(">>>> URL {}", urlscan_data["page"]["url"])
-        logging.info(">>>> Brands {}", urlscan_data["verdicts"]["overall"]["brands"])
-    else:
-        return Exception("URLScan data not found"), None, None
-    
     # Prepare json obj to save
+    
     dataset_info = {
         "urlscan_uuid": uuid,
         "http_status_code": None,
@@ -197,6 +190,14 @@ def save_dataset(uuid, fish_id):
         "htmldom_path": ""
     }
 
+    if urlscan_data.get("page") != None:
+        logging.info(">>>> Domain {}", urlscan_data["page"]["domain"])
+        logging.info(">>>> URL {}", urlscan_data["page"]["url"])
+        logging.info(">>>> Brands {}", urlscan_data["verdicts"]["overall"]["brands"])
+    else:
+        logger.error(">>>> URLScan data not found")
+        return Exception("URLScan data not found"), dataset_info, urlscan_data
+    
     # check is categories in blacklist
     for category in urlscan_data["verdicts"]["overall"]["categories"]:
         if category in BLACKLIST:
