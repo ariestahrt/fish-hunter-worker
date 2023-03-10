@@ -21,9 +21,10 @@ def get_dataset_features(dataset_path):
     # Rebuild html with only-used css
     html = lxml.html.parse(StringIO(html_clean))
     for element in html.getroot().iter():
-        if element.tag == "link" and "stylesheet" in element.attrib["rel"]:
-            # remove the element
-            element.getparent().remove(element)
+        if element.attrib.get("rel") != None:
+            if element.tag == "link" and "stylesheet" in element.attrib["rel"]:
+                # remove the element
+                element.getparent().remove(element)
     
     # Add new link to clean css
     head = html.find(".//head")
