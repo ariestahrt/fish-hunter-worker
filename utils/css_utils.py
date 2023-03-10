@@ -156,8 +156,9 @@ def get_css_from_html(html_text, html_root):
     html = lxml.html.parse(StringIO(html_text))
     css_files = []
     for element in html.getroot().iter():
-        if element.tag == "link" and "stylesheet" in element.attrib.get("rel"):
-            css_files.append(element.attrib.get("href"))
+        if element.attrib.get("rel") != None:
+            if element.tag == "link" and "stylesheet" in element.attrib.get("rel"):
+                css_files.append(element.attrib.get("href"))
         if element.tag == "style":
             indom_css += element.text_content()
         if isinstance(element, lxml.html.HtmlElement):
