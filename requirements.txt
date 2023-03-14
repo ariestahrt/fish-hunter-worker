@@ -20,3 +20,5 @@ pandas
 numpy
 langdetect
 uuid
+git+https://github.com/ariestahrt/FishHunterUtil.git
+git+https://github.com/ariestahrt/WebPageClone.git

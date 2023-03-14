@@ -9,11 +9,11 @@ import logging
 import sys
 import time, random
 
-from utils.webpage_saver import save_webpage
+import WebPageClone
 from utils.s3 import compress_and_upload, upload_image
 from utils.lookup_tools import whoisxmlapi, ipwhois
-from utils.feature_extractor import get_dataset_features
-from utils.selenium_ss import screenshot
+from FishHunterUtil.features_extractor import get_dataset_features
+from FishHunterUtil.selenium_ss import screenshot
 
 from colargulog import ColorizedArgsFormatter
 from colargulog import BraceFormatStyleFormatter
@@ -245,7 +245,7 @@ def save_dataset(uuid, fish_id):
 
     logging.info(">>>> Scampage is {} [{}]", "ALIVE", reqx.status_code)
     
-    dataset_info["assets_downloaded"] = save_webpage(urlscan_data["page"]["url"], html_content=dom_req.text, saved_path=f"datasets/{temp_dir}")
+    dataset_info["assets_downloaded"] = WebPageClone.save_webpage(urlscan_data["page"]["url"], html_content=dom_req.text, saved_path=f"datasets/{temp_dir}")
 
     # dataset_path = f"datasets/{dataset_brand}-{dataset_index}"
     dataset_path = f"datasets/{fish_id}"
