@@ -330,15 +330,30 @@ if __name__ == "__main__":
 
                 # screenshot
                 ds_abs_path = os.path.abspath(dataset_info["dataset_path"])
-                index_path = "file://"+ds_abs_path+"/index.html"
 
-                screenshot_path = dataset_info["dataset_path"]+"/screenshot.jpg"
-                logger.info("Taking screenshot to {}", screenshot_path)
-                screenshot(index_path, screenshot_path)
-
+                # index
+                screenshot_path_index = dataset_info["dataset_path"]+"/screenshot_index.jpg"
+                logger.info("Taking screenshot to {}", screenshot_path_index)
+                screenshot("file://"+ds_abs_path+"/index.html", screenshot_path_index)
+                
                 # upload screenshot to s3
-                upload_image("fh-ss-images", local_file=dataset_info["dataset_path"]+"/screenshot.jpg", dest=f"dataset_images/{str(fish_id)}.jpg")
-                screenshot_path = f"https://fh-ss-images.s3-ap-southeast-1.amazonaws.com/dataset_images/{str(fish_id)}.jpg"
+                upload_image(os.getenv('AWS_BUCKET_IMAGES'), local_file=screenshot_path_index, dest=f"screenshot/index/{str(fish_id)}.jpg")
+                
+                # clean
+                screenshot_path_clean = dataset_info["dataset_path"]+"/screenshot_clean.jpg"
+                logger.info("Taking screenshot to {}", screenshot_path_clean)
+                screenshot("file://"+ds_abs_path+"/clean.html", screenshot_path_clean)
+                
+                # upload screenshot to s3
+                upload_image(os.getenv('AWS_BUCKET_IMAGES'), local_file=screenshot_path_clean, dest=f"screenshot/clean/{str(fish_id)}.jpg")
+
+                # original
+                screenshot_path_original = dataset_info["dataset_path"]+"/screenshot_original.jpg"
+                logger.info("Taking screenshot to {}", screenshot_path_original)
+                screenshot("file://"+ds_abs_path+"/original.html", screenshot_path_original)
+                
+                # upload screenshot to s3
+                upload_image(os.getenv('AWS_BUCKET_IMAGES'), local_file=screenshot_path_original, dest=f"screenshot/original/{str(fish_id)}.jpg")
 
                 data = {
                     "ref_url": fish_id,
@@ -352,7 +367,11 @@ if __name__ == "__main__":
                     "assets_downloaded": dataset_info["assets_downloaded"],
                     "brands": urlscan_data["verdicts"]["overall"]["brands"],
                     "urlscan_uuid": dataset_info["urlscan_uuid"],
-                    "screenshot_path": screenshot_path,
+                    "screenshot": {
+                        "index": f"https://fh-ss-images.s3.ap-southeast-1.amazonaws.com/screenshot/index/"+str(fish_id)+".jpg",
+                        "original": f"https://fh-ss-images.s3.ap-southeast-1.amazonaws.com/screenshot/original/"+str(fish_id)+".jpg",
+                        "clean": f"https://fh-ss-images.s3.ap-southeast-1.amazonaws.com/screenshot/clean/"+str(fish_id)+".jpg"
+                    },
                     "domain_name": urlscan_data["page"]["domain"],
                     "whois_lookup_text": whois_data.get("text", None),
                     "whois_registrar": whois_data.get("registrar", None),
