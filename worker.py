@@ -198,8 +198,14 @@ def save_dataset(uuid, fish_id):
         logger.error(">>>> URLScan data not found")
         return Exception("URLScan data not found"), dataset_info, urlscan_data
     
+    # check is url already in db
+    if DATASETS.find({"url": urlscan_data["page"]["url"]}).count() > 0:
+        logging.error(">>>> URL already in db")
+        dataset_info["reject_details"] = "URL already in db"
+        return Exception("URL already in db"), dataset_info, urlscan_data
+
     # check is categories in blacklist
-    for category in urlscan_data["verdicts"]["overall"]["categories"]:
+    for category in urlscan_data["verdicts"]["overall"]["brands"]:
         if category in BLACKLIST:
             dataset_info["reject_details"] = "Categories blacklisted"
             return Exception("Categories blacklisted"), dataset_info, urlscan_data
