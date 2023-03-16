@@ -6,7 +6,6 @@ load_dotenv()
 
 ACCESS_KEY=os.getenv("AWS_ACCESS_KEY")
 SECRET_KEY=os.getenv("AWS_SECRET_KEY")
-BUCKET=os.getenv("AWS_BUCKET")
 PASSWORD=os.getenv("7Z_PASSWORD")
 
 def compress_and_upload(dataset_path, bucket_filename):
@@ -22,7 +21,7 @@ def upload_file(local_file):
     dest = "datasets/" + local_file
 
     try:
-        s3.upload_file(local_file, BUCKET, dest)
+        s3.upload_file(local_file, os.getenv("AWS_BUCKET_DATASET"), dest)
         print("Upload Successful")
         return True
     except FileNotFoundError:
