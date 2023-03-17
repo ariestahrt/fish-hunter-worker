@@ -335,4 +335,7 @@ if __name__ == "__main__":
         }
     })
 
+    # Compress and upload
+    compress_and_upload(dataset_info["dataset_path"], f"{fish_id}.7z")
+
     print("Done")
