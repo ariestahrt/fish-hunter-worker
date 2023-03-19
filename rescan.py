@@ -200,10 +200,10 @@ def save_dataset(uuid, fish_id):
         return Exception("URLScan data not found"), dataset_info, urlscan_data
     
     # check is url already in db
-    if DATASETS.count_documents({"url": urlscan_data["page"]["url"]}) > 0:
-        logging.error(">>>> URL already in db")
-        dataset_info["reject_details"] = "URL already in db"
-        return Exception("URL already in db"), dataset_info, urlscan_data
+    # if DATASETS.count_documents({"url": urlscan_data["page"]["url"]}) > 0:
+    #     logging.error(">>>> URL already in db")
+    #     dataset_info["reject_details"] = "URL already in db"
+    #     return Exception("URL already in db"), dataset_info, urlscan_data
 
     # check is categories in blacklist
     for category in urlscan_data["verdicts"]["overall"]["brands"]:
@@ -244,13 +244,14 @@ def save_dataset(uuid, fish_id):
             is_alive = True
     except Exception as ex: None
         
-    if not is_alive:
-        logging.error(">>>> Scampage is {}", "DEAD")
-        remove_dir(f"datasets/{temp_dir}")
-        dataset_info["reject_details"] = "Can't reach scampage"
-        return Exception("Can't reach scampage"), dataset_info, urlscan_data
+    # if not is_alive:
+    #     logging.error(">>>> Scampage is {}", "DEAD")
+    #     remove_dir(f"datasets/{temp_dir}")
+    #     dataset_info["reject_details"] = "Can't reach scampage"
+        
+    #     return Exception("Can't reach scampage"), dataset_info, urlscan_data
 
-    logging.info(">>>> Scampage is {} [{}]", "ALIVE", reqx.status_code)
+    # logging.info(">>>> Scampage is {} [{}]", "ALIVE", reqx.status_code)
     
     dataset_info["assets_downloaded"] = WebPageClone.save_webpage(urlscan_data["page"]["url"], html_content=dom_req.text, saved_path=f"datasets/{temp_dir}")
 
@@ -264,78 +265,84 @@ def save_dataset(uuid, fish_id):
     return None, dataset_info, urlscan_data
 
 if __name__ == "__main__":
-    ds_id = input("DS ID: ")
+    ds_id_list = open("ds_id_list.txt", "r").read().splitlines()
+    for ds_id in ds_id_list:
+        # get fish
+        ds = DATASETS.find_one({"_id": ObjectId(ds_id)})
+        if ds == None:
+            print("Fish not found")
+            exit(1)
+        
+        # get urlscan uuid
+        uuid = ds["urlscan_uuid"]
+        fish_id = str(ds["ref_url"])
 
-    # get fish
-    ds = DATASETS.find_one({"_id": ObjectId(ds_id)})
-    if ds == None:
-        print("Fish not found")
-        exit(1)
-    
-    # get urlscan uuid
-    uuid = ds["urlscan_uuid"]
-    fish_id = str(ds["ref_url"])
+        logging.info(">> Downloading UUID {}", uuid)
+        err, dataset_info, urlscan_data = save_dataset(uuid, fish_id)
+        
+        if err == None:
+            logging.info(">> Downloading UUID {} : {}", uuid, "OK")
+        else:
+            logging.error(">> Downloading UUID {} : {}", uuid, "FAILED")
+            logging.error(">> Error: {}", err)
+            exit(1)
+        
+        # extract features
+        f_text, f_html, f_css = get_dataset_features(dataset_info["dataset_path"])
 
-    logging.info(">> Downloading UUID {}", uuid)
-    err, dataset_info, urlscan_data = save_dataset(uuid, fish_id)
-    
-    if err == None:
-        logging.info(">> Downloading UUID {} : {}", uuid, "OK")
-    else:
-        logging.error(">> Downloading UUID {} : {}", uuid, "FAILED")
-        logging.error(">> Error: {}", err)
-        exit(1)
-    
-    # extract features
-    f_text, f_html, f_css = get_dataset_features(dataset_info["dataset_path"])
+        # detect language
+        try:
+            lang = detect(f_text)
+        except Exception as ex:
+            lang = None
 
-    # detect language
-    try:
-        lang = detect(f_text)
-    except Exception as ex:
-        lang = None
+        # screenshot
+        ds_abs_path = os.path.abspath(dataset_info["dataset_path"])
 
-    # screenshot
-    ds_abs_path = os.path.abspath(dataset_info["dataset_path"])
+        # index
+        screenshot_path_index = dataset_info["dataset_path"]+"/screenshot_index.jpg"
+        logger.info("Taking screenshot to {}", screenshot_path_index)
+        screenshot("file://"+ds_abs_path+"/index.html", screenshot_path_index)
+        
+        # upload screenshot to s3
+        upload_image(os.getenv('AWS_BUCKET_IMAGES'), local_file=screenshot_path_index, dest=f"screenshot/index/{str(fish_id)}.jpg")
+        
+        # clean
+        screenshot_path_clean = dataset_info["dataset_path"]+"/screenshot_clean.jpg"
+        logger.info("Taking screenshot to {}", screenshot_path_clean)
+        screenshot("file://"+ds_abs_path+"/clean.html", screenshot_path_clean)
+        
+        # upload screenshot to s3
+        upload_image(os.getenv('AWS_BUCKET_IMAGES'), local_file=screenshot_path_clean, dest=f"screenshot/clean/{str(fish_id)}.jpg")
 
-    # index
-    screenshot_path_index = dataset_info["dataset_path"]+"/screenshot_index.jpg"
-    logger.info("Taking screenshot to {}", screenshot_path_index)
-    screenshot("file://"+ds_abs_path+"/index.html", screenshot_path_index)
-    
-    # upload screenshot to s3
-    upload_image(os.getenv('AWS_BUCKET_IMAGES'), local_file=screenshot_path_index, dest=f"screenshot/index/{str(fish_id)}.jpg")
-    
-    # clean
-    screenshot_path_clean = dataset_info["dataset_path"]+"/screenshot_clean.jpg"
-    logger.info("Taking screenshot to {}", screenshot_path_clean)
-    screenshot("file://"+ds_abs_path+"/clean.html", screenshot_path_clean)
-    
-    # upload screenshot to s3
-    upload_image(os.getenv('AWS_BUCKET_IMAGES'), local_file=screenshot_path_clean, dest=f"screenshot/clean/{str(fish_id)}.jpg")
+        # original
+        screenshot_path_original = dataset_info["dataset_path"]+"/screenshot_original.jpg"
+        logger.info("Taking screenshot to {}", screenshot_path_original)
+        screenshot("file://"+ds_abs_path+"/original.html", screenshot_path_original)
+        
+        # upload screenshot to s3
+        upload_image(os.getenv('AWS_BUCKET_IMAGES'), local_file=screenshot_path_original, dest=f"screenshot/original/{str(fish_id)}.jpg")
 
-    # original
-    screenshot_path_original = dataset_info["dataset_path"]+"/screenshot_original.jpg"
-    logger.info("Taking screenshot to {}", screenshot_path_original)
-    screenshot("file://"+ds_abs_path+"/original.html", screenshot_path_original)
-    
-    # upload screenshot to s3
-    upload_image(os.getenv('AWS_BUCKET_IMAGES'), local_file=screenshot_path_original, dest=f"screenshot/original/{str(fish_id)}.jpg")
+        # UPDATE DATASET
+        DATASETS.update_one({"_id": ObjectId(ds_id)}, {
+            "$set": {
+                "assets_downloaded": dataset_info["assets_downloaded"],
+                "language": lang,
+                "features": {
+                    "text": f_text,
+                    "html": f_html,
+                    "css": f_css
+                },
+                "screenshot": {
+                    "index": f"https://fh-ss-images.s3.ap-southeast-1.amazonaws.com/screenshot/index/"+str(fish_id)+".jpg",
+                    "original": f"https://fh-ss-images.s3.ap-southeast-1.amazonaws.com/screenshot/original/"+str(fish_id)+".jpg",
+                    "clean": f"https://fh-ss-images.s3.ap-southeast-1.amazonaws.com/screenshot/clean/"+str(fish_id)+".jpg"
+                },
+                "updated_at": datetime.today().replace(microsecond=0)
+            }
+        })
 
-    # UPDATE DATASET
-    DATASETS.update_one({"_id": ObjectId(ds_id)}, {
-        "$set": {
-            "language": lang,
-            "features": {
-                "text": f_text,
-                "html": f_html,
-                "css": f_css
-            },
-            "updated_at": datetime.today().replace(microsecond=0)
-        }
-    })
+        # Compress and upload
+        compress_and_upload(dataset_info["dataset_path"], f"{fish_id}.7z")
 
-    # Compress and upload
-    compress_and_upload(dataset_info["dataset_path"], f"{fish_id}.7z")
-
-    print("Done")
+        print("Done")

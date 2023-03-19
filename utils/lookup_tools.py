@@ -37,55 +37,78 @@ def whoisxmlapi(domain):
     if len(api_keys) == 0: api_keys = [""]
     api_key = api_keys[0]
 
+    url = 'https://www.whoisxmlapi.com/whoisserver/WhoisService'
+    params = {
+        'apiKey': api_key,
+        'domainName': domain,
+        'outputFormat': 'JSON'
+    }
+    response = requests.get(url, params=params)
+
+    if response.status_code == 401:
+        # remove api key from file
+        with open(os.getenv('WHOISXML_API_KEYS'), 'r') as f:
+            lines = f.readlines()
+        with open(os.getenv('WHOISXML_API_KEYS'), 'w') as f:
+            for line in lines:
+                if line.strip("\n") != api_key:
+                    f.write(line)
+
+    rtr = {}
+    if response.status_code != 200:
+        return Exception('API Error'), None
+    
+    # save to file
+    with open('whoisxmlapi.json', 'w') as f:
+        f.write(response.text)
+    
+    rtr["text"] = response.text
     try:
-        url = 'https://www.whoisxmlapi.com/whoisserver/WhoisService'
-        params = {
-            'apiKey': api_key,
-            'domainName': domain,
-            'outputFormat': 'JSON'
-        }
-        response = requests.get(url, params=params)
-
-        if response.status_code == 401:
-            # remove api key from file
-            with open(os.getenv('WHOISXML_API_KEYS'), 'r') as f:
-                lines = f.readlines()
-            with open(os.getenv('WHOISXML_API_KEYS'), 'w') as f:
-                for line in lines:
-                    if line.strip("\n") != api_key:
-                        f.write(line)
-
-        rtr = {}
-        if response.status_code != 200:
-            return Exception('API Error'), None
-        
-        # save to file
-        with open('whoisxmlapi.json', 'w') as f:
-            f.write(response.text)
-        
-        rtr["text"] = response.text
         rtr["domain_name"] = response.json()["WhoisRecord"]["domainName"]
+    except:
+        None
+
+    try:
         rtr["registrar_name"] = response.json()["WhoisRecord"]["registrarName"]
-        
-        try:
-            rtr["registrar_url"] = response.json()["WhoisRecord"]["registryData"]["rawText"].split("Registrar URL: ")[1].split("\n")[0]
-        except:
-            rtr["registrar_url"] = None
-        
+    except:
+        None
+    
+    try:
+        rtr["registrar_url"] = response.json()["WhoisRecord"]["registryData"]["rawText"].split("Registrar URL: ")[1].split("\n")[0]
+    except:
+        None
+    
+    try:
         rtr["created_date"] = response.json()["WhoisRecord"]["registryData"]["createdDate"]
+    except:
+        None
+
+    try:
         rtr["updated_date"] = response.json()["WhoisRecord"]["registryData"]["updatedDate"]
+    except:
+        None
+    
+    try:
         rtr["expires_date"] = response.json()["WhoisRecord"]["registryData"]["expiresDate"]
-
-        # convert date
+    except:
+        None
+    
+    # convert date
+    try:
         rtr["created_date"] = convert_date(rtr["created_date"])
+    except:
+        None
+    try:
         rtr["updated_date"] = convert_date(rtr["updated_date"])
+    except:
+        None
+    
+    try:
         rtr["expires_date"] = convert_date(rtr["expires_date"])
+    except:
+        None
 
-        rtr["name_servers"] = response.json()["WhoisRecord"]["registryData"]["nameServers"]["hostNames"]
-        return None, rtr
-    except Exception as e:
-        print(e)
-        return e, {}
+    return None, rtr
 
 def ipwhois(ip):
     try:
