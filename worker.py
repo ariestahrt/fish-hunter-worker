@@ -159,14 +159,25 @@ def urlscan_search(url):
     return uuids
 
 def urlscan_uuid(uuid):
+    global CURRENT_PROXY
     while True:
         try:
             response = request_helper(f"https://urlscan.io/api/v1/result/{uuid}")
+            # save result to files
             urlscan_res = response.json()
+            with open(f"json/{uuid}.json", 'w') as f:
+                json.dump(urlscan_res, f)
+
+            if response.status_code != 200:
+                CURRENT_PROXY = None
+                return urlscan_uuid(uuid)
+
             return urlscan_res
-        except:
+        except Exception as ex:
             logger.error("Error getting urlscan uuid: {}", uuid)
-            logger.error("Error: {}", response.text)
+            with open(f"urlscan_error.txt", "a") as f:
+                f.write(f"{uuid}\n")
+                f.write(response.text)
 
 def save_dataset(uuid, fish_id):
     '''
@@ -322,8 +333,12 @@ if __name__ == "__main__":
                 err, ip_data = ipwhois(ip=urlscan_data["stats"]["ipStats"][0]["ip"])
 
                 domain_age = None
+                urlscan_date = urlscan_data["task"]["time"]
+                # convert to datetime
+                urlscan_date = datetime.strptime(urlscan_date, "%Y-%m-%dT%H:%M:%S.%fZ")
+
                 if whois_data.get("created_date", None) != None:
-                    domain_age = (fish["created_at"] - whois_data["created_date"]).days
+                    domain_age = (urlscan_date - whois_data["created_date"]).days
 
                 # extract features
                 f_text, f_html, f_css = get_dataset_features(dataset_info["dataset_path"])
@@ -373,6 +388,7 @@ if __name__ == "__main__":
                     "assets_downloaded": dataset_info["assets_downloaded"],
                     "brands": urlscan_data["verdicts"]["overall"]["brands"],
                     "urlscan_uuid": dataset_info["urlscan_uuid"],
+                    "urlscan_scan_date": urlscan_date,
                     "screenshot": {
                         "index": f"https://fh-ss-images.s3.ap-southeast-1.amazonaws.com/screenshot/index/"+str(fish_id)+".jpg",
                         "original": f"https://fh-ss-images.s3.ap-southeast-1.amazonaws.com/screenshot/original/"+str(fish_id)+".jpg",
