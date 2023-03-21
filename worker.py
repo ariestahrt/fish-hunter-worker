@@ -165,8 +165,6 @@ def urlscan_uuid(uuid):
             response = request_helper(f"https://urlscan.io/api/v1/result/{uuid}")
             # save result to files
             urlscan_res = response.json()
-            with open(f"json/{uuid}.json", 'w') as f:
-                json.dump(urlscan_res, f)
 
             if response.status_code != 200:
                 CURRENT_PROXY = None
@@ -326,6 +324,9 @@ if __name__ == "__main__":
 
             if err == None:
                 JOBS.update_one({"_id": job_id}, { "$set": { "http_status_code": dataset_info["http_status_code"], "save_status": "success", "details": "OK", "updated_at": datetime.today().replace(microsecond=0)} })
+                
+                with open(f"json/{uuid}.json", 'w') as f:
+                    json.dump(urlscan_data, f)
 
                 err, whois_data = whoisxmlapi(domain=urlscan_data["page"]["domain"])
                 if err != None:
