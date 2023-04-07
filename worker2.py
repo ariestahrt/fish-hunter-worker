@@ -220,7 +220,7 @@ def save_dataset(uuid, fish_id):
         if category in BLACKLIST:
             dataset_info["reject_details"] = "Categories blacklisted"
             return Exception("Categories blacklisted"), dataset_info, urlscan_data
-    
+
     # check is brands valid
     if len(urlscan_data["verdicts"]["overall"]["brands"]) < 1:
         logging.error(">>>> Brands invalid")
@@ -246,21 +246,13 @@ def save_dataset(uuid, fish_id):
     create_dir("", f"datasets/{temp_dir}")
 
     # Check is url is alive
-    is_alive = False
     try:
         reqx = requests.get(urlscan_data["page"]["url"], allow_redirects=False, verify=False)
         dataset_info["http_status_code"] = reqx.status_code
-        if reqx.status_code < 500:
-            is_alive = True
-    except Exception as ex: None
-        
-    if not is_alive:
-        logging.error(">>>> Scampage is {}", "DEAD")
-        remove_dir(f"datasets/{temp_dir}")
-        dataset_info["reject_details"] = "Can't reach scampage"
-        return Exception("Can't reach scampage"), dataset_info, urlscan_data
+    except:
+        dataset_info["http_status_code"] = None
 
-    logging.info(">>>> Scampage is {} [{}]", "ALIVE", reqx.status_code)
+    logging.info(">>>> Scampage is {}", dataset_info["http_status_code"])
     
     dataset_info["assets_downloaded"] = WebPageClone.save_webpage(urlscan_data["page"]["url"], html_content=dom_req.text, saved_path=f"datasets/{temp_dir}")
 
@@ -314,13 +306,15 @@ if __name__ == "__main__":
 
         if dataset_info["reject_details"] == "Brands blacklisted":
             logging.info(">> Downloading UUID {} : {}", uuid, "STOPPED")
-            break
+            HASH_COLLECTION.update_one({"_id": fish_id}, { "$set": { "status": "done", "updated_at": datetime.today().replace(microsecond=0)} })
+            continue
         
         if err == None:
             logging.info(">> Downloading UUID {} : {}", uuid, "OK")
-            break
         else:
             logging.error(">> Downloading UUID {} : {}", uuid, "FAILED")
+            HASH_COLLECTION.update_one({"_id": fish_id}, { "$set": { "status": "done", "updated_at": datetime.today().replace(microsecond=0)} })
+            continue
 
         if err == None:
             JOBS.update_one({"_id": job_id}, { "$set": { "http_status_code": dataset_info["http_status_code"], "save_status": "success", "details": "OK", "updated_at": datetime.today().replace(microsecond=0)} })
@@ -447,3 +441,5 @@ if __name__ == "__main__":
 
         else:
             JOBS.update_one({"_id": job_id}, { "$set": { "http_status_code": dataset_info["http_status_code"], "save_status": "failed", "details": dataset_info["reject_details"], "updated_at": datetime.today().replace(microsecond=0)} })
+
+        HASH_COLLECTION.update_one({"_id": fish_id}, { "$set": { "status": "done", "updated_at": datetime.today().replace(microsecond=0)} })

@@ -109,7 +109,7 @@ def urlscan_search(hash_id, search_after=None):
     # save to file
     
     try:
-        with open("urlscan.json", "w") as f:
+        with open("urlscan_similar.json", "w") as f:
             f.write(req.text)
     except: None
 
@@ -120,7 +120,7 @@ def urlscan_search(hash_id, search_after=None):
 
     uuids = []    
     for result in res["results"]:
-        apex_domain = result["page"]["apexDomain"]
+        apex_domain = result.get("page", {}).get("apexDomain", "")
 
         if ALLOW_LIST.find_one({"domain": apex_domain}) == None:
             uuids.append(result["_id"])
@@ -150,7 +150,8 @@ if __name__ == "__main__":
     # fish_id = input("Enter fish id: ")
     # fish = DATASETS.find_one({"_id": fish_id})
     # uuid = fish["urlscan_uuid"]
-    uuid = "d9d681c3-661f-4f22-8728-9805ce1a7338"
+    # uuid = "d9d681c3-661f-4f22-8728-9805ce1a7338"
+    uuid = input("Enter uuid: ")
     # get urlscan indicator
     url = f"https://urlscan.io/result/{uuid}/"
     req = request_helper(url)
@@ -176,8 +177,4 @@ if __name__ == "__main__":
              hashs.append(href.split("/search/#hash:")[1])
 
     for h in hashs:
-        uuids = urlscan_search(h)
-
-        for i in range(len(uuids)):
-             print(i, uuids[i])
-        exit()
+        urlscan_search(h)

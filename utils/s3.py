@@ -44,5 +44,26 @@ def upload_image(bucket, local_file, dest):
         print("The file was not found")
         return False
 
+def SevenZIPCompress(compressed_file_path, folder_path):
+    folder_path = os.path.abspath(folder_path)
+    compressed_file_path = os.path.abspath(compressed_file_path)
+
+    command = f"7z a -t7z -m0=lzma2 -mx=9 -mfb=64 -md=32m -ms=on -mhe=on -p\"{os.getenv('7Z_PASSWORD')}\" {compressed_file_path} {folder_path}/*"
+    os.system(command)
+
+def upload_file2(bucket, local_file, dest):
+    print("Uploading file to S3")
+    # Note: This is only for images
+    s3 = boto3.client('s3', aws_access_key_id=os.getenv("AWS_ACCESS_KEY"), aws_secret_access_key=os.getenv("AWS_SECRET_KEY"))
+
+    try:
+        s3.upload_file(local_file, bucket, dest)
+        print("File uploaded successfully")
+        return True
+    except FileNotFoundError:
+        print("The file was not found")
+        return False
+
+
 if __name__ == "__main__":
     None

@@ -59,3 +59,5 @@ if __name__ == "__main__":
                 "deleted_at": None,
             })
             logger.info(f"Inserted {url} to DB")
+        else:
+            print(f"Url {url} already exists in DB")

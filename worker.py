@@ -17,6 +17,9 @@ from FishHunterUtil.selenium_ss import screenshot
 
 from colargulog import ColorizedArgsFormatter
 from colargulog import BraceFormatStyleFormatter
+from utils.similarity_calculator import calculate_similarity
+from bson import ObjectId
+from utils.twitter import tweet
 
 def init_logging():
     root_logger = logging.getLogger()
@@ -43,7 +46,6 @@ init_logging()
 logger = logging.getLogger(__name__)
 load_dotenv()
 
-# CLIENT = MongoClient('localhost', 27017)
 # Connect to mongodb atlas
 CLIENT = MongoClient(os.getenv("MONGO_CONNECTION_STRING"))
 DB = CLIENT['hunter']
@@ -52,6 +54,7 @@ SOURCES = DB["sources"]
 JOBS = DB["jobs"]
 DATASETS = DB["datasets"]
 CURRENT_PROXY = None
+MINIMUM_SCORE = float(os.getenv("MINIMUM_SCORE"))
 
 def read_file(filename):
 	try:
@@ -143,7 +146,7 @@ def urlscan_search(url):
         return []
 
     # Filter > 5 weeks
-    min_date = datetime.today() - timedelta(days=5*7)
+    min_date = datetime.today() - timedelta(days=17*7)
     filter_res = list(filter(lambda x: x["task"]["time"] >= str(min_date), res["results"]))
 
     sorted_res = sorted(filter_res, key= lambda x: (x["stats"]["dataLength"], x["task"]["time"]), reverse=True)
@@ -172,7 +175,7 @@ def urlscan_uuid(uuid):
 
             return urlscan_res
         except Exception as ex:
-            logger.error("Error getting urlscan uuid: {}", uuid)
+            logging.error("Error getting urlscan uuid: {}", uuid)
             with open(f"urlscan_error.txt", "a") as f:
                 f.write(f"{uuid}\n")
                 f.write(response.text)
@@ -204,7 +207,7 @@ def save_dataset(uuid, fish_id):
         logging.info(">>>> URL {}", urlscan_data["page"]["url"])
         logging.info(">>>> Brands {}", urlscan_data["verdicts"]["overall"]["brands"])
     else:
-        logger.error(">>>> URLScan data not found")
+        logging.error(">>>> URLScan data not found")
         return Exception("URLScan data not found"), dataset_info, urlscan_data
     
     # check is url already in db
@@ -216,8 +219,8 @@ def save_dataset(uuid, fish_id):
     # check is categories in blacklist
     for category in urlscan_data["verdicts"]["overall"]["brands"]:
         if category in BLACKLIST:
-            dataset_info["reject_details"] = "Categories blacklisted"
-            return Exception("Categories blacklisted"), dataset_info, urlscan_data
+            dataset_info["reject_details"] = "Brands blacklisted"
+            return Exception("Brands blacklisted"), dataset_info, urlscan_data
     
     # check is brands valid
     if len(urlscan_data["verdicts"]["overall"]["brands"]) < 1:
@@ -245,20 +248,22 @@ def save_dataset(uuid, fish_id):
 
     # Check is url is alive
     is_alive = False
+    reqx_status_code = None
     try:
         reqx = requests.get(urlscan_data["page"]["url"], allow_redirects=False, verify=False)
         dataset_info["http_status_code"] = reqx.status_code
+        reqx_status_code = reqx.status_code
         if reqx.status_code < 500:
             is_alive = True
     except Exception as ex: None
         
     if not is_alive:
         logging.error(">>>> Scampage is {}", "DEAD")
-        remove_dir(f"datasets/{temp_dir}")
-        dataset_info["reject_details"] = "Can't reach scampage"
-        return Exception("Can't reach scampage"), dataset_info, urlscan_data
-
-    logging.info(">>>> Scampage is {} [{}]", "ALIVE", reqx.status_code)
+        # remove_dir(f"datasets/{temp_dir}")
+        # dataset_info["reject_details"] = "Can't reach scampage"
+        # return Exception("Can't reach scampage"), dataset_info, urlscan_data
+    else:
+        logging.info(">>>> Scampage is {} [{}]", "ALIVE", reqx_status_code)
     
     dataset_info["assets_downloaded"] = WebPageClone.save_webpage(urlscan_data["page"]["url"], html_content=dom_req.text, saved_path=f"datasets/{temp_dir}")
 
@@ -270,6 +275,72 @@ def save_dataset(uuid, fish_id):
 
     logging.info(">>>> Download complete, saved to {}", dataset_path)
     return None, dataset_info, urlscan_data
+
+def tweet_dataset(ds):
+    logging.info("Tweeting dataset")
+    # setup brands tag
+    brands_tag = ""
+    for brand in ds["brands"]: brands_tag += f"#{brand} "
+
+    tweetText = "New phishing colected!\n\n"
+    tweetText += f"🔗 /{ds['domain_name']}/\n"
+    tweetText += f"🆔 Brands: {brands_tag}\n"
+    if ds["whois_domain_age"] != None:
+        tweetText += f"📅 Domain age: {ds['whois_domain_age']}"
+        if ds["whois_domain_age"] > 1:
+            tweetText += " days\n"
+        else:
+            tweetText += " day\n"
+    tweetText += f"🌐 IP: {ds['remote_ip_address']} ({ds['remote_ip_country_name']})\n"
+    if ds["security_state"] == "secure":
+        tweetText += f"🔐 SSL/TLS : {ds['security_protocol']} Issued By \"{ds['security_issuer']}\"\n"
+    else:
+        tweetText += "🔐 SSL/TLS : NO\n"
+    tweetText += "\n#phishing #alert #scam #scampage"
+
+    # download image
+    img_data = requests.get(ds["screenshot"]["index"]).content
+    temp_image_path = f"/tmp/{str(ds['_id'])}.jpg"
+    with open(temp_image_path, 'wb') as handler:
+        handler.write(img_data)
+
+    tweetImage = temp_image_path
+    tweet(tweetText, tweetImage)
+
+    # delete temp image
+    os.remove(temp_image_path)
+
+    logging.info("Tweeting dataset complete")
+
+def check_similarity(ds_id):
+    ds = DATASETS.find_one({"_id": ObjectId(ds_id)})
+    logging.info("Checking similarity for {}", ds["url"])
+
+    start_time = datetime.now()
+
+    # calculate similarity
+    similarity_res = calculate_similarity(ds)
+    # sort the result
+    similarity_res = sorted(similarity_res, key=lambda k: k['final_score'], reverse=True)
+
+    end_time = datetime.now()
+    # calculate the time to scan
+    time_to_scan = end_time - start_time
+    time_to_scan_seconds = time_to_scan.total_seconds()
+
+    final_score = similarity_res[0]["final_score"]
+    if final_score > MINIMUM_SCORE:
+        # update the dataset status
+        # format score to 2 decimal places
+        str_final_score = "{:.2f}".format(final_score)
+        DATASETS.update_one({"_id": ObjectId(ds_id)}, {"$set": {"status": f"need_check_{str_final_score}"}})
+        logging.info(">> OK, need check")
+        logging.info(">> Score: {}", str(final_score))
+
+        # tweet the dataset
+        tweet_dataset(ds)
+
+    logging.info("Finished in {} seconds", str(time_to_scan_seconds))
 
 if __name__ == "__main__":
     while True:
@@ -301,6 +372,15 @@ if __name__ == "__main__":
 
         # Update fish as processed
         URL_COLLECTIONS.update_one({"_id": fish_id}, { "$set": { "status": "processed", "updated_at": datetime.today().replace(microsecond=0)} })
+
+        url_domain = urlparse(url).netloc
+
+        # Check is domain already in dataset
+        if DATASETS.count_documents({"domain_name": url_domain}) > 0:
+            logging.info("Domain already in dataset")
+            URL_COLLECTIONS.update_one({"_id": fish_id}, { "$set": { "status": "done", "updated_at": datetime.today().replace(microsecond=0)} })
+            JOBS.update_one({"_id": job_id}, { "$set": { "http_status_code": None, "save_status": "failed", "details": "Domain already in dataset", "updated_at": datetime.today().replace(microsecond=0)} })
+            continue
 
         urlscan_uuids = urlscan_search(url)
         logging.info("FOUND {} scan from urlscan.io", len(urlscan_uuids))
@@ -355,7 +435,7 @@ if __name__ == "__main__":
 
                 # index
                 screenshot_path_index = dataset_info["dataset_path"]+"/screenshot_index.jpg"
-                logger.info("Taking screenshot to {}", screenshot_path_index)
+                logging.info("Taking screenshot to {}", screenshot_path_index)
                 screenshot("file://"+ds_abs_path+"/index.html", screenshot_path_index)
                 
                 # upload screenshot to s3
@@ -363,7 +443,7 @@ if __name__ == "__main__":
                 
                 # clean
                 screenshot_path_clean = dataset_info["dataset_path"]+"/screenshot_clean.jpg"
-                logger.info("Taking screenshot to {}", screenshot_path_clean)
+                logging.info("Taking screenshot to {}", screenshot_path_clean)
                 screenshot("file://"+ds_abs_path+"/clean.html", screenshot_path_clean)
                 
                 # upload screenshot to s3
@@ -371,7 +451,7 @@ if __name__ == "__main__":
 
                 # original
                 screenshot_path_original = dataset_info["dataset_path"]+"/screenshot_original.jpg"
-                logger.info("Taking screenshot to {}", screenshot_path_original)
+                logging.info("Taking screenshot to {}", screenshot_path_original)
                 screenshot("file://"+ds_abs_path+"/original.html", screenshot_path_original)
                 
                 # upload screenshot to s3
@@ -440,11 +520,14 @@ if __name__ == "__main__":
                     # convert to datetime
                     data["security_valid_from"] = datetime.fromtimestamp(data["security_valid_from"])
                     data["security_valid_to"] = datetime.fromtimestamp(data["security_valid_to"])
+                
                 DATASETS.insert_one(data)
 
                 # Compress and encrypt
                 compress_and_upload(dataset_info["dataset_path"], f"{fish_id}.7z")
 
+                # Check similarity
+                check_similarity(data["_id"])
             else:
                 JOBS.update_one({"_id": job_id}, { "$set": { "http_status_code": dataset_info["http_status_code"], "save_status": "failed", "details": dataset_info["reject_details"], "updated_at": datetime.today().replace(microsecond=0)} })
 
